@@ -24,6 +24,9 @@ classifiers = [
 ]
 requires-python = ">=3.10"
 
+[project.scripts]
+fs-sav = "fs_sav:main"
+
 [project.urls]
 Homepage = "https://github.com/xurxogr/fs-sav"
 Repository = "https://github.com/xurxogr/fs-sav"

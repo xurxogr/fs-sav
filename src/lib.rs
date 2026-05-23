@@ -22,6 +22,7 @@
 //! }
 //! ```
 
+pub mod cli;
 pub mod error;
 pub mod models;
 pub mod parser;
@@ -198,12 +199,37 @@ mod python {
         })
     }
 
+    /// Run the `fs-sav` command-line interface.
+    ///
+    /// Forwards `argv` (including the program name at index 0) to the exact
+    /// same clap parser used by the native binary, so the Python console
+    /// script accepts identical commands and parameters.
+    ///
+    /// Args:
+    ///     argv: Argument vector, typically `sys.argv`.
+    ///
+    /// Returns:
+    ///     Process exit code (0 on success, 1 on error).
+    #[pyfunction]
+    fn cli_main(py: Python<'_>, argv: Vec<String>) -> i32 {
+        // Release the GIL: the CLI does blocking I/O and (for `watch`) runs
+        // until interrupted.
+        py.allow_threads(|| match crate::cli::run(argv) {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                1
+            }
+        })
+    }
+
     /// fs-sav Python module
     #[pymodule]
     fn fs_sav(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_function(wrap_pyfunction!(parse_save, m)?)?;
         m.add_function(wrap_pyfunction!(parse_save_bytes, m)?)?;
         m.add_function(wrap_pyfunction!(info, m)?)?;
+        m.add_function(wrap_pyfunction!(cli_main, m)?)?;
         Ok(())
     }
 }
