@@ -8,6 +8,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Opt JavaScript actions into Node.js 24 (default from June 2026); silences the
+  # Node 20 deprecation warning while action majors still ship a Node 20 entry point.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   test:
