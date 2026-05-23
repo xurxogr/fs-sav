@@ -14,8 +14,10 @@ Example:
     >>> terminus = fs_sav.parse_save("path/to/save.sav", hex="TerminusHex", with_items=True)
 """
 
+from importlib.metadata import version
+
 from .fs_sav import info, parse_save, parse_save_bytes
 
 __all__ = ["parse_save", "parse_save_bytes", "info"]
 
-__version__ = "0.1.0"
+__version__ = version("fs-sav")

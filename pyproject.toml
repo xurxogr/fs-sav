@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "fs-sav"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Foxhole save file parser - extracts stockpile data from .sav files"
 readme = "README.md"
 license = { text = "MIT" }
