@@ -1,2 +1,12 @@
 /target
 __pycache__/
+
+# maturin develop drops the compiled extension into the source tree
+/python/fs_sav/*.so
+/python/fs_sav/*.pyd
+
+# Python build/test artifacts
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
