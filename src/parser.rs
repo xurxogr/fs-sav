@@ -209,7 +209,7 @@ fn parse_stockpile_items(value: &StructValue) -> Vec<StockpileItem> {
                         })
                         .collect();
                     // Sort by quantity descending
-                    group.sort_by(|a, b| b.quantity.cmp(&a.quantity));
+                    group.sort_by_key(|item| std::cmp::Reverse(item.quantity));
                     group
                 } else {
                     vec![]
