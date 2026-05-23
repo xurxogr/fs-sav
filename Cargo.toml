@@ -40,7 +40,7 @@ thiserror = "1"
 anyhow = "1"
 
 # Python bindings (optional)
-pyo3 = { version = "0.23", features = ["extension-module"], optional = true }
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py310"], optional = true }
 
 [features]
 default = []
