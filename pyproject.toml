@@ -7,7 +7,7 @@ name = "fs-sav"
 dynamic = ["version"]
 description = "Foxhole save file parser - extracts stockpile data from .sav files"
 readme = "README.md"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 authors = [{ name = "Jorge García", email = "jgroca@gmail.com" }]
 keywords = ["foxhole", "save", "parser", "stockpile", "game"]
 classifiers = [
