@@ -116,3 +116,50 @@ jobs:
         with:
           command: upload
           args: --non-interactive --skip-existing dist/*
+
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    # Wait for PyPI so the release isn't published before the wheels exist.
+    needs: [release]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Create release with generated notes
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+
+  binaries:
+    name: Standalone binary (${{ matrix.target }})
+    # Attach binaries to the release created above.
+    needs: [github-release]
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      # Builds `cargo build --release --bin fs-sav` (default features, no PyO3),
+      # archives it (.tar.gz / .zip), and uploads to the tag's GitHub Release.
+      # Cross-compiles aarch64-linux via `cross` automatically.
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: fs-sav
+          target: ${{ matrix.target }}
+          archive: $bin-$tag-$target
+          token: ${{ secrets.GITHUB_TOKEN }}
