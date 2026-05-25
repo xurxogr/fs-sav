@@ -265,9 +265,20 @@ fn get_string_prop(props: &Properties, name: &str) -> Option<String> {
 fn get_int32_prop(props: &Properties, name: &str) -> Option<i32> {
     props.0.iter().find_map(|(key, prop)| {
         if key.1 == name {
-            if let Property::Int(v) = prop {
-                return Some(*v);
-            }
+            // Foxhole stores integer fields with varying property types
+            // (e.g. UInt32Property for Quantity), so accept any integer variant.
+            return match prop {
+                Property::Int(v) => Some(*v),
+                Property::Int8(v) => Some(*v as i32),
+                Property::Int16(v) => Some(*v as i32),
+                Property::Int64(v) => Some(*v as i32),
+                Property::UInt8(v) => Some(*v as i32),
+                Property::UInt16(v) => Some(*v as i32),
+                Property::UInt32(v) => Some(*v as i32),
+                Property::UInt64(v) => Some(*v as i32),
+                Property::Byte(uesave::Byte::Byte(v)) => Some(*v as i32),
+                _ => None,
+            };
         }
         None
     })
