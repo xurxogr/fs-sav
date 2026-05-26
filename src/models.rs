@@ -110,6 +110,16 @@ impl StockpileType {
     }
 }
 
+/// Faction that owns a stockpile, derived from which pinned-tooltips
+/// property the data was read from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Faction {
+    #[serde(rename = "Warden")]
+    Warden,
+    #[serde(rename = "Colonial")]
+    Colonial,
+}
+
 /// Normalized map coordinates for a stockpile location.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StockpileCoords {
@@ -155,6 +165,9 @@ pub struct Stockpile {
     /// Type of stockpile
     #[serde(rename = "type")]
     pub stockpile_type: StockpileType,
+
+    /// Faction that owns the stockpile ("Warden" or "Colonial")
+    pub faction: Faction,
 
     /// Hex region name
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -282,6 +295,7 @@ mod tests {
         let stockpile = Stockpile {
             name: "Test".to_string(),
             stockpile_type: StockpileType::Seaport,
+            faction: Faction::Warden,
             hex: Some("Westgate".to_string()),
             coords: Some(StockpileCoords { x: 0.5, y: 0.5 }),
             is_reserve: false,

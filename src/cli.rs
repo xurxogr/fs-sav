@@ -15,7 +15,19 @@ use clap::{Args, Parser, Subcommand};
 use notify::RecursiveMode;
 use notify_debouncer_mini::{new_debouncer, DebouncedEventKind};
 
+use crate::models::Faction;
 use crate::{parse_save, parse_save_bytes, Stockpile};
+
+/// Parse a `--faction` value, accepting C/Colonial and W/Warden in any case.
+fn parse_faction(s: &str) -> Result<Faction, String> {
+    match s.to_ascii_lowercase().as_str() {
+        "c" | "colonial" => Ok(Faction::Colonial),
+        "w" | "warden" => Ok(Faction::Warden),
+        other => Err(format!(
+            "invalid faction '{other}' (expected C/Colonial or W/Warden)"
+        )),
+    }
+}
 
 #[derive(Parser)]
 #[command(
@@ -47,6 +59,10 @@ struct FilterArgs {
     /// Filter by stockpile type (e.g., Seaport, StorageFacility)
     #[arg(long = "type")]
     stockpile_type: Option<String>,
+
+    /// Filter by faction: C/Colonial or W/Warden (case-insensitive)
+    #[arg(long, value_parser = parse_faction)]
+    faction: Option<Faction>,
 }
 
 #[derive(Subcommand)]
@@ -109,6 +125,13 @@ fn apply_filters(
             }
             if filters.reserves && !s.is_reserve {
                 return false;
+            }
+
+            // Faction filter
+            if let Some(faction) = filters.faction {
+                if s.faction != faction {
+                    return false;
+                }
             }
 
             // Hex filter

@@ -8,7 +8,9 @@ use chrono::{DateTime, TimeZone, Utc};
 use uesave::{Properties, Property, Save, SaveReader, StructValue, ValueVec};
 
 use crate::error::{FsSavError, Result};
-use crate::models::{ParseResult, Stockpile, StockpileCoords, StockpileItem, StockpileType};
+use crate::models::{
+    Faction, ParseResult, Stockpile, StockpileCoords, StockpileItem, StockpileType,
+};
 
 /// Parse a .sav file and extract stockpiles.
 pub fn parse_save<P: AsRef<Path>>(path: P) -> Result<ParseResult> {
@@ -62,31 +64,39 @@ pub fn parse_save_bytes(data: &[u8]) -> Result<Vec<Stockpile>> {
 fn extract_stockpiles(save: &Save) -> Result<Vec<Stockpile>> {
     let mut stockpiles = Vec::new();
 
-    // Navigate to root.properties.PinnedMapToolTipsC_0
+    // Navigate to root.properties
     let properties = &save.root.properties;
 
-    // Find PinnedMapToolTipsC array - try to get the property
-    let pinned_tooltips = properties.0.iter().find_map(|(key, prop)| {
-        if key.1 == "PinnedMapToolTipsC" {
-            if let Property::Array(ValueVec::Struct(arr)) = prop {
-                return Some(arr);
+    // Pinned tooltips are stored per-faction:
+    //   PinnedMapToolTipsC -> Colonial
+    //   PinnedMapToolTipsW -> Warden
+    // A save may contain either or both.
+    for (prop_name, faction) in [
+        ("PinnedMapToolTipsC", Faction::Colonial),
+        ("PinnedMapToolTipsW", Faction::Warden),
+    ] {
+        let pinned_tooltips = properties.0.iter().find_map(|(key, prop)| {
+            if key.1 == prop_name {
+                if let Property::Array(ValueVec::Struct(arr)) = prop {
+                    return Some(arr);
+                }
             }
-        }
-        None
-    });
+            None
+        });
 
-    let Some(tooltips) = pinned_tooltips else {
-        return Ok(stockpiles); // No tooltips found, return empty
-    };
+        let Some(tooltips) = pinned_tooltips else {
+            continue; // This faction's tooltips not present
+        };
 
-    // Parse each tooltip
-    for tooltip in tooltips {
-        if let StructValue::Struct(props) = tooltip {
-            match parse_tooltip(props) {
-                Ok(mut parsed) => stockpiles.append(&mut parsed),
-                Err(e) => {
-                    // Log warning but continue
-                    eprintln!("Warning: Failed to parse tooltip: {}", e);
+        // Parse each tooltip
+        for tooltip in tooltips {
+            if let StructValue::Struct(props) = tooltip {
+                match parse_tooltip(props, faction) {
+                    Ok(mut parsed) => stockpiles.append(&mut parsed),
+                    Err(e) => {
+                        // Log warning but continue
+                        eprintln!("Warning: Failed to parse tooltip: {}", e);
+                    }
                 }
             }
         }
@@ -96,7 +106,7 @@ fn extract_stockpiles(save: &Save) -> Result<Vec<Stockpile>> {
 }
 
 /// Parse a single tooltip into stockpiles (main + reserves).
-fn parse_tooltip(props: &Properties) -> Result<Vec<Stockpile>> {
+fn parse_tooltip(props: &Properties, faction: Faction) -> Result<Vec<Stockpile>> {
     let mut result = Vec::new();
 
     // Extract common fields
@@ -138,6 +148,7 @@ fn parse_tooltip(props: &Properties) -> Result<Vec<Stockpile>> {
         result.push(Stockpile {
             name: String::new(),
             stockpile_type: stockpile_type.clone(),
+            faction,
             hex: map_id.clone(),
             coords: coords.clone(),
             is_reserve: false,
@@ -163,6 +174,7 @@ fn parse_tooltip(props: &Properties) -> Result<Vec<Stockpile>> {
                     result.push(Stockpile {
                         name: reserve_name,
                         stockpile_type: stockpile_type.clone(),
+                        faction,
                         hex: map_id.clone(),
                         coords: coords.clone(),
                         is_reserve: true,
