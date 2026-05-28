@@ -7,11 +7,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum StockpileType {
     // Bases
-    #[serde(rename = "GarrisonStation")]
+    #[serde(rename = "ForwardBase1")]
     Encampment,
     #[serde(rename = "Keep")]
     Keep,
-    #[serde(rename = "ForwardBase1")]
+    #[serde(rename = "GarrisonStation")]
     SafeHouse,
     #[serde(rename = "RelicBase1")]
     RelicBase,
@@ -77,9 +77,9 @@ impl StockpileType {
     /// Parse from in-game CodeName string.
     pub fn from_code_name(code: &str) -> Self {
         match code {
-            "GarrisonStation" => Self::Encampment,
+            "GarrisonStation" => Self::SafeHouse,
             "Keep" => Self::Keep,
-            "ForwardBase1" => Self::SafeHouse,
+            "ForwardBase1" => Self::Encampment,
             "RelicBase1" => Self::RelicBase,
             "FortBaseT1" => Self::BunkerBase1,
             "FortBaseT2" => Self::BunkerBase2,
