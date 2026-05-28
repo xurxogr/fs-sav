@@ -118,13 +118,14 @@ impl StockpileType {
     fn tech_components(&self) -> &'static [TechComponent] {
         use TechComponent::*;
         match self {
-            Self::Encampment | Self::Keep => {
-                &[ProvisionalGarrison, SmallGarrison, LargeGarrison]
-            }
+            Self::Encampment | Self::Keep => &[ProvisionalGarrison, SmallGarrison, LargeGarrison],
             Self::BorderBase => &[ProvisionalGarrison],
-            Self::RelicBase => {
-                &[ProvisionalGarrison, SmallGarrison, LargeGarrison, Fortifications]
-            }
+            Self::RelicBase => &[
+                ProvisionalGarrison,
+                SmallGarrison,
+                LargeGarrison,
+                Fortifications,
+            ],
             Self::SafeHouse => &[
                 ProvisionalGarrison,
                 SmallGarrison,
