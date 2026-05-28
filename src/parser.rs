@@ -5,7 +5,7 @@ use std::io::{BufReader, Cursor};
 use std::path::Path;
 
 use chrono::{DateTime, TimeZone, Utc};
-use uesave::{Properties, Property, Save, SaveReader, StructValue, ValueVec};
+use uesave::{ByteArray, Properties, Property, Save, SaveReader, StructValue, ValueVec};
 
 use crate::error::{FsSavError, Result};
 use crate::models::{
@@ -144,6 +144,21 @@ fn parse_tooltip(props: &Properties, faction: Faction) -> Result<Vec<Stockpile>>
             .map(parse_stockpile_items)
             .unwrap_or_default();
 
+        // Garrison/upgrade tech build progress (bases only). Prefer the recent
+        // snapshot, but fall back to the initial details since the recent
+        // Values array is often empty for tooltips not recently expanded.
+        let tech = get_byte_array_prop(detail_props, "Values")
+            .filter(|values| !values.is_empty())
+            .or_else(|| {
+                get_struct_prop(props, "InitalMapItemDetails").and_then(|sv| match sv {
+                    StructValue::Struct(inital_props) => {
+                        get_byte_array_prop(inital_props, "Values")
+                    }
+                    _ => None,
+                })
+            })
+            .and_then(|values| stockpile_type.parse_tech(values));
+
         // Main stockpile (public)
         result.push(Stockpile {
             name: String::new(),
@@ -153,6 +168,7 @@ fn parse_tooltip(props: &Properties, faction: Faction) -> Result<Vec<Stockpile>>
             coords: coords.clone(),
             is_reserve: false,
             items,
+            tech,
             timestamp,
             shard: None,
             ingame_timestamp: None,
@@ -179,6 +195,7 @@ fn parse_tooltip(props: &Properties, faction: Faction) -> Result<Vec<Stockpile>>
                         coords: coords.clone(),
                         is_reserve: true,
                         items: reserve_items,
+                        tech: None,
                         timestamp,
                         shard: None,
                         ingame_timestamp: None,
@@ -333,6 +350,13 @@ fn get_struct_prop<'a>(props: &'a Properties, name: &str) -> Option<&'a StructVa
         }
         None
     })
+}
+
+fn get_byte_array_prop<'a>(props: &'a Properties, name: &str) -> Option<&'a [u8]> {
+    match get_array_prop(props, name)? {
+        ValueVec::Byte(ByteArray::Byte(bytes)) => Some(bytes),
+        _ => None,
+    }
 }
 
 fn get_array_prop<'a>(props: &'a Properties, name: &str) -> Option<&'a ValueVec> {

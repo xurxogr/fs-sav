@@ -61,6 +61,8 @@ pub enum StockpileType {
     TransferMaterial,
     #[serde(rename = "FacilityTransferResource")]
     TransferResource,
+    #[serde(rename = "FacilityTransferCrate")]
+    TransferCrate,
     #[serde(rename = "FacilityVehicleFactory1")]
     VehicleFactory1,
     #[serde(rename = "FacilityVehicleFactory2")]
@@ -102,12 +104,162 @@ impl StockpileType {
             "FacilityTransferLiquid" => Self::TransferLiquid,
             "FacilityTransferMaterial" => Self::TransferMaterial,
             "FacilityTransferResource" => Self::TransferResource,
+            "FacilityTransferCrate" => Self::TransferCrate,
             "FacilityVehicleFactory1" => Self::VehicleFactory1,
             "FacilityVehicleFactory2" => Self::VehicleFactory2,
             "FacilityVehicleFactory3" => Self::VehicleFactory3,
             _ => Self::Undefined,
         }
     }
+
+    /// Ordered tech-tree garrison/upgrade slots for this structure, matching
+    /// the positional `Values.Byte` array in the save. Empty for structures
+    /// (facilities, depots, ships) that have no tech.
+    fn tech_components(&self) -> &'static [TechComponent] {
+        use TechComponent::*;
+        match self {
+            Self::Encampment | Self::Keep => {
+                &[ProvisionalGarrison, SmallGarrison, LargeGarrison]
+            }
+            Self::BorderBase => &[ProvisionalGarrison],
+            Self::RelicBase => {
+                &[ProvisionalGarrison, SmallGarrison, LargeGarrison, Fortifications]
+            }
+            Self::SafeHouse => &[
+                ProvisionalGarrison,
+                SmallGarrison,
+                LargeGarrison,
+                RadioStation,
+                ArtilleryShelter,
+            ],
+            Self::TownBase1 | Self::TownBase2 | Self::TownBase3 => &[
+                ProvisionalGarrison,
+                SmallGarrison,
+                LargeGarrison,
+                Industry,
+                OccupiedTown,
+                Fortifications,
+            ],
+            Self::BunkerBase1 | Self::BunkerBase2 | Self::BunkerBase3 => &[
+                ProvisionalGarrison,
+                SmallGarrison,
+                LargeGarrison,
+                T1Garrison,
+                T2Garrison,
+                T3Garrison,
+                ArtilleryGarrison,
+                T1SupportBunkers,
+                T3SupportBunkers,
+                Deployment,
+                AdvancedBunkers,
+            ],
+            _ => &[],
+        }
+    }
+
+    /// Decode a save `Values.Byte` array (build progress 0-100 per slot) into a
+    /// labeled [`Tech`] for this structure. Returns `None` when the structure
+    /// has no tech or the save carries no values.
+    pub fn parse_tech(&self, values: &[u8]) -> Option<Tech> {
+        let components = self.tech_components();
+        if components.is_empty() || values.is_empty() {
+            return None;
+        }
+
+        let mut tech = Tech::default();
+        for (component, &value) in components.iter().zip(values) {
+            component.assign(&mut tech, value);
+        }
+        Some(tech)
+    }
+}
+
+/// A single garrison/upgrade tech component (a value of the in-game
+/// `ETechComponentID` enum). Shared identifiers mean the same component across
+/// structures; only their position in a structure's `Values` array differs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TechComponent {
+    ProvisionalGarrison,
+    SmallGarrison,
+    LargeGarrison,
+    T1Garrison,
+    T2Garrison,
+    T3Garrison,
+    ArtilleryGarrison,
+    T1SupportBunkers,
+    T3SupportBunkers,
+    Deployment,
+    AdvancedBunkers,
+    RadioStation,
+    ArtilleryShelter,
+    Industry,
+    OccupiedTown,
+    Fortifications,
+}
+
+impl TechComponent {
+    fn assign(self, tech: &mut Tech, value: u8) {
+        let slot = match self {
+            Self::ProvisionalGarrison => &mut tech.provisional_garrison,
+            Self::SmallGarrison => &mut tech.small_garrison,
+            Self::LargeGarrison => &mut tech.large_garrison,
+            Self::T1Garrison => &mut tech.t1_garrison,
+            Self::T2Garrison => &mut tech.t2_garrison,
+            Self::T3Garrison => &mut tech.t3_garrison,
+            Self::ArtilleryGarrison => &mut tech.artillery_garrison,
+            Self::T1SupportBunkers => &mut tech.t1_support_bunkers,
+            Self::T3SupportBunkers => &mut tech.t3_support_bunkers,
+            Self::Deployment => &mut tech.deployment,
+            Self::AdvancedBunkers => &mut tech.advanced_bunkers,
+            Self::RadioStation => &mut tech.radio_station,
+            Self::ArtilleryShelter => &mut tech.artillery_shelter,
+            Self::Industry => &mut tech.industry,
+            Self::OccupiedTown => &mut tech.occupied_town,
+            Self::Fortifications => &mut tech.fortifications,
+        };
+        *slot = Some(value);
+    }
+}
+
+/// Garrison/upgrade tech build progress (0-100 per slot) for a base structure.
+/// Each field is a tech component; only the slots that exist for a given
+/// structure are populated. Fields are declared in an order that keeps every
+/// structure's slots in tech-tree order.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct Tech {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provisional_garrison: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub small_garrison: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub large_garrison: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub t1_garrison: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub t2_garrison: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub t3_garrison: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artillery_garrison: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub t1_support_bunkers: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub t3_support_bunkers: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deployment: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub advanced_bunkers: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub radio_station: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artillery_shelter: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub industry: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub occupied_town: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fortifications: Option<u8>,
 }
 
 /// Faction that owns a stockpile, derived from which pinned-tooltips
@@ -184,6 +336,10 @@ pub struct Stockpile {
     /// List of items in the stockpile
     #[serde(default)]
     pub items: Vec<StockpileItem>,
+
+    /// Garrison/upgrade tech build progress (bases only; None otherwise)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tech: Option<Tech>,
 
     /// Last update timestamp
     pub timestamp: DateTime<Utc>,
@@ -284,6 +440,69 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_tech_garrison_station() {
+        // GarrisonStation: index 3 = RadioStation, 4 = ArtilleryShelter.
+        let tech = StockpileType::SafeHouse
+            .parse_tech(&[100, 50, 0, 30, 0])
+            .unwrap();
+        assert_eq!(tech.provisional_garrison, Some(100));
+        assert_eq!(tech.small_garrison, Some(50));
+        assert_eq!(tech.large_garrison, Some(0));
+        assert_eq!(tech.radio_station, Some(30));
+        assert_eq!(tech.artillery_shelter, Some(0));
+        // Slots that don't apply to this structure stay unset.
+        assert_eq!(tech.fortifications, None);
+        assert_eq!(tech.industry, None);
+    }
+
+    #[test]
+    fn test_parse_tech_index3_differs_by_type() {
+        // The 4th value is Fortifications for a RelicBase but RadioStation for
+        // a GarrisonStation - position is per-type, meaning is shared.
+        let relic = StockpileType::RelicBase
+            .parse_tech(&[100, 100, 100, 80])
+            .unwrap();
+        assert_eq!(relic.fortifications, Some(80));
+        assert_eq!(relic.radio_station, None);
+
+        let garrison = StockpileType::SafeHouse
+            .parse_tech(&[100, 100, 100, 80, 0])
+            .unwrap();
+        assert_eq!(garrison.radio_station, Some(80));
+        assert_eq!(garrison.fortifications, None);
+    }
+
+    #[test]
+    fn test_parse_tech_fort_base_full_eleven_slots() {
+        let tech = StockpileType::BunkerBase2
+            .parse_tech(&[100, 100, 70, 100, 100, 0, 0, 0, 0, 0, 0])
+            .unwrap();
+        assert_eq!(tech.t1_garrison, Some(100));
+        assert_eq!(tech.t2_garrison, Some(100));
+        assert_eq!(tech.advanced_bunkers, Some(0));
+    }
+
+    #[test]
+    fn test_parse_tech_serializes_in_tree_order() {
+        let tech = StockpileType::TownBase1
+            .parse_tech(&[100, 18, 0, 10, 0, 0])
+            .unwrap();
+        let json = serde_json::to_string(&tech).unwrap();
+        assert_eq!(
+            json,
+            r#"{"ProvisionalGarrison":100,"SmallGarrison":18,"LargeGarrison":0,"Industry":10,"OccupiedTown":0,"Fortifications":0}"#
+        );
+    }
+
+    #[test]
+    fn test_parse_tech_none_for_non_tech_and_empty() {
+        // Facilities/depots have no tech.
+        assert!(StockpileType::Seaport.parse_tech(&[100, 100]).is_none());
+        // A base with no values present yields None rather than an empty Tech.
+        assert!(StockpileType::Keep.parse_tech(&[]).is_none());
+    }
+
+    #[test]
     fn test_stockpile_type_serialization() {
         let st = StockpileType::Seaport;
         let json = serde_json::to_string(&st).unwrap();
@@ -300,6 +519,7 @@ mod tests {
             coords: Some(StockpileCoords { x: 0.5, y: 0.5 }),
             is_reserve: false,
             items: vec![],
+            tech: None,
             timestamp: Utc::now(),
             shard: None,
             ingame_timestamp: None,
