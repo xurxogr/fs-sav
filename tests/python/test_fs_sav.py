@@ -90,6 +90,24 @@ class TestFilters:
 
         assert len(stockpiles_lower) == len(stockpiles_upper) == 1
 
+    def test_filter_faction(self):
+        """faction filter should return only stockpiles of that faction."""
+        for value in ("Warden", "Colonial"):
+            stockpiles = fs_sav.parse_save(TEST_SAV_PATH, faction=value)
+            for stockpile in stockpiles:
+                assert stockpile["faction"] == value
+
+    def test_filter_faction_case_insensitive_and_short(self):
+        """faction filter should accept short codes and any case."""
+        wardens_long = fs_sav.parse_save(TEST_SAV_PATH, faction="warden")
+        wardens_short = fs_sav.parse_save(TEST_SAV_PATH, faction="W")
+        assert len(wardens_long) == len(wardens_short)
+
+    def test_filter_faction_invalid_raises(self):
+        """An invalid faction value should raise ValueError."""
+        with pytest.raises(ValueError):
+            fs_sav.parse_save(TEST_SAV_PATH, faction="Neutral")
+
     def test_filter_with_items(self):
         """--with_items filter should return only stockpiles with items."""
         stockpiles = fs_sav.parse_save(TEST_SAV_PATH, with_items=True)

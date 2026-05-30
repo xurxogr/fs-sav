@@ -11,6 +11,7 @@ Example:
     >>> # With filters
     >>> seaports = fs_sav.parse_save("path/to/save.sav", stockpile_type="Seaport")
     >>> reserves = fs_sav.parse_save("path/to/save.sav", reserves=True)
+    >>> wardens = fs_sav.parse_save("path/to/save.sav", faction="Warden")
     >>> terminus = fs_sav.parse_save("path/to/save.sav", hex="TerminusHex", with_items=True)
 """
 

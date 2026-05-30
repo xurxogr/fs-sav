@@ -19,7 +19,7 @@ use crate::models::Faction;
 use crate::{parse_save, parse_save_bytes, Stockpile};
 
 /// Parse a `--faction` value, accepting C/Colonial and W/Warden in any case.
-fn parse_faction(s: &str) -> Result<Faction, String> {
+pub(crate) fn parse_faction(s: &str) -> Result<Faction, String> {
     match s.to_ascii_lowercase().as_str() {
         "c" | "colonial" => Ok(Faction::Colonial),
         "w" | "warden" => Ok(Faction::Warden),

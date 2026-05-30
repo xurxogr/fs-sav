@@ -46,8 +46,17 @@ pub fn info() -> ParserInfo {
 mod python {
     use pyo3::prelude::*;
 
-    use crate::models::{ParserInfo, Stockpile};
+    use crate::models::{Faction, ParserInfo, Stockpile};
     use crate::parser;
+
+    /// Parse an optional `faction` argument into a `Faction`, raising
+    /// `ValueError` on an invalid value.
+    fn parse_faction_arg(faction: Option<&str>) -> PyResult<Option<Faction>> {
+        faction
+            .map(crate::cli::parse_faction)
+            .transpose()
+            .map_err(PyErr::new::<pyo3::exceptions::PyValueError, _>)
+    }
 
     /// Apply filters to stockpiles (mirrors CLI logic)
     fn apply_filters(
@@ -56,6 +65,7 @@ mod python {
         reserves: bool,
         hex: Option<&str>,
         stockpile_type: Option<&str>,
+        faction: Option<Faction>,
         with_items: bool,
     ) -> Vec<Stockpile> {
         stockpiles
@@ -67,6 +77,13 @@ mod python {
                 }
                 if reserves && !s.is_reserve {
                     return false;
+                }
+
+                // Faction filter
+                if let Some(faction) = faction {
+                    if s.faction != faction {
+                        return false;
+                    }
                 }
 
                 // Hex filter
@@ -115,20 +132,24 @@ mod python {
     ///     reserves: Only return reserve stockpiles
     ///     hex: Filter by hex name (e.g., "TerminusHex")
     ///     stockpile_type: Filter by stockpile type (e.g., "Seaport")
+    ///     faction: Filter by faction: C/Colonial or W/Warden (case-insensitive)
     ///     with_items: Only return stockpiles with items
     ///
     /// Returns:
     ///     List of stockpile dictionaries
     #[pyfunction]
-    #[pyo3(signature = (path, *, public=false, reserves=false, hex=None, stockpile_type=None, with_items=false))]
+    #[pyo3(signature = (path, *, public=false, reserves=false, hex=None, stockpile_type=None, faction=None, with_items=false))]
     fn parse_save(
         path: &str,
         public: bool,
         reserves: bool,
         hex: Option<&str>,
         stockpile_type: Option<&str>,
+        faction: Option<&str>,
         with_items: bool,
     ) -> PyResult<Py<PyAny>> {
+        let faction = parse_faction_arg(faction)?;
+
         let result = parser::parse_save(path)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
@@ -138,6 +159,7 @@ mod python {
             reserves,
             hex,
             stockpile_type,
+            faction,
             with_items,
         );
 
@@ -152,20 +174,24 @@ mod python {
     ///     reserves: Only return reserve stockpiles
     ///     hex: Filter by hex name (e.g., "TerminusHex")
     ///     stockpile_type: Filter by stockpile type (e.g., "Seaport")
+    ///     faction: Filter by faction: C/Colonial or W/Warden (case-insensitive)
     ///     with_items: Only return stockpiles with items
     ///
     /// Returns:
     ///     List of stockpile dictionaries
     #[pyfunction]
-    #[pyo3(signature = (data, *, public=false, reserves=false, hex=None, stockpile_type=None, with_items=false))]
+    #[pyo3(signature = (data, *, public=false, reserves=false, hex=None, stockpile_type=None, faction=None, with_items=false))]
     fn parse_save_bytes(
         data: &[u8],
         public: bool,
         reserves: bool,
         hex: Option<&str>,
         stockpile_type: Option<&str>,
+        faction: Option<&str>,
         with_items: bool,
     ) -> PyResult<Py<PyAny>> {
+        let faction = parse_faction_arg(faction)?;
+
         let stockpiles = parser::parse_save_bytes(data)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
@@ -175,6 +201,7 @@ mod python {
             reserves,
             hex,
             stockpile_type,
+            faction,
             with_items,
         );
 
