@@ -342,8 +342,8 @@ pub struct Stockpile {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tech: Option<Tech>,
 
-    /// Last update timestamp
-    pub timestamp: DateTime<Utc>,
+    /// Last update timestamp (None if absent/invalid in the save; see `errors`)
+    pub timestamp: Option<DateTime<Utc>>,
 
     /// Shard name (None for SAV-parsed stockpiles)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -521,7 +521,7 @@ mod tests {
             is_reserve: false,
             items: vec![],
             tech: None,
-            timestamp: Utc::now(),
+            timestamp: Some(Utc::now()),
             shard: None,
             ingame_timestamp: None,
             resolution: None,

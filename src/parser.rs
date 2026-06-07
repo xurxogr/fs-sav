@@ -130,9 +130,13 @@ fn parse_tooltip(props: &Properties, faction: Faction) -> Result<Vec<Stockpile>>
         _ => None,
     });
 
-    // Get timestamp
-    let raw_timestamp = get_int64_prop(props, "LastUpdated").unwrap_or(0);
-    let timestamp = parse_ue_timestamp(raw_timestamp);
+    // Get timestamp. `LastUpdated` is a DateTime struct (UE ticks as u64),
+    // not a plain Int64 property. A missing/invalid value yields None (and an
+    // error) instead of a fabricated "now" that would mask the failure.
+    let timestamp = get_datetime_ticks_prop(props, "LastUpdated").and_then(parse_ue_timestamp);
+    let timestamp_error = timestamp
+        .is_none()
+        .then(|| vec!["missing or invalid LastUpdated timestamp".to_string()]);
 
     // Get stockpile details from RecentMapItemDetails
     let details = get_struct_prop(props, "RecentMapItemDetails");
@@ -173,7 +177,7 @@ fn parse_tooltip(props: &Properties, faction: Faction) -> Result<Vec<Stockpile>>
             shard: None,
             ingame_timestamp: None,
             resolution: None,
-            errors: None,
+            errors: timestamp_error.clone(),
         });
 
         // Parse reserve stockpiles
@@ -200,7 +204,7 @@ fn parse_tooltip(props: &Properties, faction: Faction) -> Result<Vec<Stockpile>>
                         shard: None,
                         ingame_timestamp: None,
                         resolution: None,
-                        errors: None,
+                        errors: timestamp_error.clone(),
                     });
                 }
             }
@@ -258,10 +262,12 @@ fn parse_stockpile_items(value: &StructValue) -> Vec<StockpileItem> {
     items
 }
 
-/// Convert UE ticks to DateTime.
-fn parse_ue_timestamp(ticks: i64) -> DateTime<Utc> {
+/// Convert UE ticks to DateTime. Returns None for missing (zero) or
+/// out-of-range ticks so callers can surface the failure rather than
+/// substituting a fabricated "now".
+fn parse_ue_timestamp(ticks: i64) -> Option<DateTime<Utc>> {
     if ticks == 0 {
-        return Utc::now();
+        return None;
     }
 
     // UE ticks are 100-nanosecond intervals since 0001-01-01
@@ -270,9 +276,7 @@ fn parse_ue_timestamp(ticks: i64) -> DateTime<Utc> {
     let unix_ticks = ticks - EPOCH_TICKS;
     let unix_seconds = unix_ticks / 10_000_000;
 
-    Utc.timestamp_opt(unix_seconds, 0)
-        .single()
-        .unwrap_or_else(Utc::now)
+    Utc.timestamp_opt(unix_seconds, 0).single()
 }
 
 // Helper functions to extract properties
@@ -313,18 +317,13 @@ fn get_int32_prop(props: &Properties, name: &str) -> Option<i32> {
     })
 }
 
-fn get_int64_prop(props: &Properties, name: &str) -> Option<i64> {
-    props.0.iter().find_map(|(key, prop)| {
-        if key.1 == name {
-            match prop {
-                Property::Int64(v) => Some(*v),
-                Property::Int(v) => Some(*v as i64),
-                _ => None,
-            }
-        } else {
-            None
-        }
-    })
+/// Extract UE ticks from a DateTime struct property (e.g. `LastUpdated`).
+/// Foxhole stores these as `StructValue::DateTime(u64)`, not a plain integer.
+fn get_datetime_ticks_prop(props: &Properties, name: &str) -> Option<i64> {
+    match get_struct_prop(props, name)? {
+        StructValue::DateTime(ticks) => Some(*ticks as i64),
+        _ => None,
+    }
 }
 
 fn get_float_prop(props: &Properties, name: &str) -> Option<f64> {
@@ -377,14 +376,12 @@ mod tests {
 
     #[test]
     fn test_parse_ue_timestamp() {
-        // Test zero returns current time (approximately)
-        let now = Utc::now();
-        let parsed = parse_ue_timestamp(0);
-        assert!((parsed - now).num_seconds().abs() < 2);
+        // Zero ticks means "missing" — no fabricated fallback.
+        assert!(parse_ue_timestamp(0).is_none());
 
         // Test a known timestamp (approximately 2024-01-01 00:00:00 UTC)
         let ticks: i64 = 638392320000000000;
-        let parsed = parse_ue_timestamp(ticks);
+        let parsed = parse_ue_timestamp(ticks).expect("valid ticks parse");
         assert!(parsed.year() >= 2023 && parsed.year() <= 2025);
     }
 }
