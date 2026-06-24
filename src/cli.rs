@@ -143,11 +143,7 @@ fn apply_filters(
 
             // Type filter
             if let Some(type_filter) = &filters.stockpile_type {
-                let type_str = serde_json::to_string(&s.stockpile_type)
-                    .unwrap_or_default()
-                    .trim_matches('"')
-                    .to_string();
-                if !type_str.eq_ignore_ascii_case(type_filter) {
+                if !s.stockpile_type.eq_ignore_ascii_case(type_filter) {
                     return false;
                 }
             }

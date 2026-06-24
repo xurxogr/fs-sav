@@ -1,6 +1,6 @@
 //! Integration tests for fs-sav parser.
 
-use fs_sav::{parse_save, StockpileType};
+use fs_sav::parse_save;
 
 const TEST_SAV_PATH: &str = "tests/fixtures/test.sav";
 
@@ -22,40 +22,44 @@ fn test_parse_test_sav() {
 fn test_stockpile_types_coverage() {
     let result = parse_save(TEST_SAV_PATH).expect("Failed to parse test.sav");
 
-    // Collect all unique types
+    // Collect all unique types (raw in-game CodeNames)
     let types: std::collections::HashSet<_> = result
         .stockpiles
         .iter()
-        .map(|s| &s.stockpile_type)
+        .map(|s| s.stockpile_type.as_str())
         .collect();
 
     // Should have all expected stockpile types
-    assert!(types.contains(&StockpileType::Encampment)); // GarrisonStation
-    assert!(types.contains(&StockpileType::Keep));
-    assert!(types.contains(&StockpileType::SafeHouse)); // ForwardBase1
-    assert!(types.contains(&StockpileType::RelicBase)); // RelicBase1
-    assert!(types.contains(&StockpileType::BunkerBase1)); // FortBaseT1
-    assert!(types.contains(&StockpileType::BunkerBase2)); // FortBaseT2
-    assert!(types.contains(&StockpileType::BunkerBase3)); // FortBaseT3
-    assert!(types.contains(&StockpileType::BorderBase));
-    assert!(types.contains(&StockpileType::TownBase1));
-    assert!(types.contains(&StockpileType::TownBase2));
-    assert!(types.contains(&StockpileType::TownBase3));
-    assert!(types.contains(&StockpileType::UndergroundFortress)); // FortGarrisonStation
-    assert!(types.contains(&StockpileType::StorageDepot)); // StorageFacility
-    assert!(types.contains(&StockpileType::Seaport));
-    assert!(types.contains(&StockpileType::AircraftDepot));
-    assert!(types.contains(&StockpileType::Hospital));
-    assert!(types.contains(&StockpileType::Refinery));
-    assert!(types.contains(&StockpileType::MaintenanceTunnel));
-    assert!(types.contains(&StockpileType::SmallArmsFactory)); // FacilityFactorySmallArms
-    assert!(types.contains(&StockpileType::ModificationCenter)); // FacilityModificationCenter
-    assert!(types.contains(&StockpileType::TransferLiquid)); // FacilityTransferLiquid
-    assert!(types.contains(&StockpileType::TransferMaterial)); // FacilityTransferMaterial
-    assert!(types.contains(&StockpileType::TransferResource)); // FacilityTransferResource
-    assert!(types.contains(&StockpileType::VehicleFactory1)); // FacilityVehicleFactory1
-    assert!(types.contains(&StockpileType::VehicleFactory2)); // FacilityVehicleFactory2
-    assert!(types.contains(&StockpileType::VehicleFactory3)); // FacilityVehicleFactory3
+    for expected in [
+        "GarrisonStation",
+        "Keep",
+        "ForwardBase1",
+        "RelicBase1",
+        "FortBaseT1",
+        "FortBaseT2",
+        "FortBaseT3",
+        "BorderBase",
+        "TownBase1",
+        "TownBase2",
+        "TownBase3",
+        "FortGarrisonStation",
+        "StorageFacility",
+        "Seaport",
+        "AircraftDepot",
+        "Hospital",
+        "Refinery",
+        "MaintenanceTunnel",
+        "FacilityFactorySmallArms",
+        "FacilityModificationCenter",
+        "FacilityTransferLiquid",
+        "FacilityTransferMaterial",
+        "FacilityTransferResource",
+        "FacilityVehicleFactory1",
+        "FacilityVehicleFactory2",
+        "FacilityVehicleFactory3",
+    ] {
+        assert!(types.contains(expected), "missing type: {expected}");
+    }
 }
 
 #[test]
@@ -66,7 +70,7 @@ fn test_stockpile_with_items() {
     let townbase3 = result
         .stockpiles
         .iter()
-        .find(|s| s.stockpile_type == StockpileType::TownBase3)
+        .find(|s| s.stockpile_type == "TownBase3")
         .expect("Should have TownBase3");
 
     // Should have items

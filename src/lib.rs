@@ -30,9 +30,7 @@ pub mod watcher;
 
 // Re-export main types for convenience
 pub use error::{FsSavError, Result};
-pub use models::{
-    ParseResult, ParserInfo, Stockpile, StockpileCoords, StockpileItem, StockpileType,
-};
+pub use models::{ParseResult, ParserInfo, Stockpile, StockpileCoords, StockpileItem};
 pub use parser::{parse_save, parse_save_bytes};
 pub use watcher::{watch_save, WatchHandle};
 
@@ -95,11 +93,7 @@ mod python {
 
                 // Type filter
                 if let Some(type_filter) = stockpile_type {
-                    let type_str = serde_json::to_string(&s.stockpile_type)
-                        .unwrap_or_default()
-                        .trim_matches('"')
-                        .to_string();
-                    if !type_str.eq_ignore_ascii_case(type_filter) {
+                    if !s.stockpile_type.eq_ignore_ascii_case(type_filter) {
                         return false;
                     }
                 }

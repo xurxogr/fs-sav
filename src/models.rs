@@ -3,176 +3,67 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-/// Stockpile type enum matching in-game CodeNames.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-pub enum StockpileType {
-    // Bases
-    #[serde(rename = "ForwardBase1")]
-    Encampment,
-    #[serde(rename = "Keep")]
-    Keep,
-    #[serde(rename = "GarrisonStation")]
-    SafeHouse,
-    #[serde(rename = "RelicBase1")]
-    RelicBase,
-    #[serde(rename = "FortBaseT1")]
-    BunkerBase1,
-    #[serde(rename = "FortBaseT2")]
-    BunkerBase2,
-    #[serde(rename = "FortBaseT3")]
-    BunkerBase3,
-    #[serde(rename = "BorderBase")]
-    BorderBase,
-    #[serde(rename = "TownBase1")]
-    TownBase1,
-    #[serde(rename = "TownBase2")]
-    TownBase2,
-    #[serde(rename = "TownBase3")]
-    TownBase3,
-    #[serde(rename = "FortGarrisonStation")]
-    UndergroundFortress,
-    #[serde(rename = "LargeShipBaseShip")]
-    BmsLonghook,
-    #[serde(rename = "LargeShipStorageShip")]
-    BmsBluefin,
-
-    // Structures
-    #[serde(rename = "StorageFacility")]
-    StorageDepot,
-    #[serde(rename = "Seaport")]
-    Seaport,
-    #[serde(rename = "AircraftDepot")]
-    AircraftDepot,
-
-    // Facilities
-    #[serde(rename = "Hospital")]
-    Hospital,
-    #[serde(rename = "Refinery")]
-    Refinery,
-    #[serde(rename = "MaintenanceTunnel")]
-    MaintenanceTunnel,
-    #[serde(rename = "FacilityFactorySmallArms")]
-    SmallArmsFactory,
-    #[serde(rename = "FacilityModificationCenter")]
-    ModificationCenter,
-    #[serde(rename = "FacilityTransferLiquid")]
-    TransferLiquid,
-    #[serde(rename = "FacilityTransferMaterial")]
-    TransferMaterial,
-    #[serde(rename = "FacilityTransferResource")]
-    TransferResource,
-    #[serde(rename = "FacilityTransferCrate")]
-    TransferCrate,
-    #[serde(rename = "FacilityVehicleFactory1")]
-    VehicleFactory1,
-    #[serde(rename = "FacilityVehicleFactory2")]
-    VehicleFactory2,
-    #[serde(rename = "FacilityVehicleFactory3")]
-    VehicleFactory3,
-
-    #[default]
-    #[serde(rename = "Undefined")]
-    Undefined,
+/// Ordered tech-tree garrison/upgrade slots for a structure, keyed by its
+/// in-game CodeName and matching the positional `Values.Byte` array in the
+/// save. Empty for structures (facilities, depots, ships) that have no tech,
+/// and for any unrecognized CodeName.
+fn tech_components(code_name: &str) -> &'static [TechComponent] {
+    use TechComponent::*;
+    match code_name {
+        "ForwardBase1" | "Keep" => &[ProvisionalGarrison, SmallGarrison, LargeGarrison],
+        "BorderBase" => &[ProvisionalGarrison],
+        "RelicBase1" => &[
+            ProvisionalGarrison,
+            SmallGarrison,
+            LargeGarrison,
+            Fortifications,
+        ],
+        "GarrisonStation" => &[
+            ProvisionalGarrison,
+            SmallGarrison,
+            LargeGarrison,
+            RadioStation,
+            ArtilleryShelter,
+        ],
+        "TownBase1" | "TownBase2" | "TownBase3" => &[
+            ProvisionalGarrison,
+            SmallGarrison,
+            LargeGarrison,
+            Industry,
+            OccupiedTown,
+            Fortifications,
+        ],
+        "FortBaseT1" | "FortBaseT2" | "FortBaseT3" => &[
+            ProvisionalGarrison,
+            SmallGarrison,
+            LargeGarrison,
+            T1Garrison,
+            T2Garrison,
+            T3Garrison,
+            ArtilleryGarrison,
+            T1SupportBunkers,
+            T3SupportBunkers,
+            Deployment,
+            AdvancedBunkers,
+        ],
+        _ => &[],
+    }
 }
 
-impl StockpileType {
-    /// Parse from in-game CodeName string.
-    pub fn from_code_name(code: &str) -> Self {
-        match code {
-            "GarrisonStation" => Self::SafeHouse,
-            "Keep" => Self::Keep,
-            "ForwardBase1" => Self::Encampment,
-            "RelicBase1" => Self::RelicBase,
-            "FortBaseT1" => Self::BunkerBase1,
-            "FortBaseT2" => Self::BunkerBase2,
-            "FortBaseT3" => Self::BunkerBase3,
-            "BorderBase" => Self::BorderBase,
-            "TownBase1" => Self::TownBase1,
-            "TownBase2" => Self::TownBase2,
-            "TownBase3" => Self::TownBase3,
-            "FortGarrisonStation" => Self::UndergroundFortress,
-            "LargeShipBaseShip" => Self::BmsLonghook,
-            "LargeShipStorageShip" => Self::BmsBluefin,
-            "StorageFacility" => Self::StorageDepot,
-            "Seaport" => Self::Seaport,
-            "AircraftDepot" => Self::AircraftDepot,
-            "Hospital" => Self::Hospital,
-            "Refinery" => Self::Refinery,
-            "MaintenanceTunnel" => Self::MaintenanceTunnel,
-            "FacilityFactorySmallArms" => Self::SmallArmsFactory,
-            "FacilityModificationCenter" => Self::ModificationCenter,
-            "FacilityTransferLiquid" => Self::TransferLiquid,
-            "FacilityTransferMaterial" => Self::TransferMaterial,
-            "FacilityTransferResource" => Self::TransferResource,
-            "FacilityTransferCrate" => Self::TransferCrate,
-            "FacilityVehicleFactory1" => Self::VehicleFactory1,
-            "FacilityVehicleFactory2" => Self::VehicleFactory2,
-            "FacilityVehicleFactory3" => Self::VehicleFactory3,
-            _ => Self::Undefined,
-        }
+/// Decode a save `Values.Byte` array (build progress 0-100 per slot) into a
+/// labeled [`Tech`] for the structure with the given in-game CodeName. Returns
+/// `None` when the structure has no tech or the save carries no values.
+pub fn parse_tech(code_name: &str, values: &[u8]) -> Option<Tech> {
+    let components = tech_components(code_name);
+    if components.is_empty() || values.is_empty() {
+        return None;
     }
 
-    /// Ordered tech-tree garrison/upgrade slots for this structure, matching
-    /// the positional `Values.Byte` array in the save. Empty for structures
-    /// (facilities, depots, ships) that have no tech.
-    fn tech_components(&self) -> &'static [TechComponent] {
-        use TechComponent::*;
-        match self {
-            Self::Encampment | Self::Keep => &[ProvisionalGarrison, SmallGarrison, LargeGarrison],
-            Self::BorderBase => &[ProvisionalGarrison],
-            Self::RelicBase => &[
-                ProvisionalGarrison,
-                SmallGarrison,
-                LargeGarrison,
-                Fortifications,
-            ],
-            Self::SafeHouse => &[
-                ProvisionalGarrison,
-                SmallGarrison,
-                LargeGarrison,
-                RadioStation,
-                ArtilleryShelter,
-            ],
-            Self::TownBase1 | Self::TownBase2 | Self::TownBase3 => &[
-                ProvisionalGarrison,
-                SmallGarrison,
-                LargeGarrison,
-                Industry,
-                OccupiedTown,
-                Fortifications,
-            ],
-            Self::BunkerBase1 | Self::BunkerBase2 | Self::BunkerBase3 => &[
-                ProvisionalGarrison,
-                SmallGarrison,
-                LargeGarrison,
-                T1Garrison,
-                T2Garrison,
-                T3Garrison,
-                ArtilleryGarrison,
-                T1SupportBunkers,
-                T3SupportBunkers,
-                Deployment,
-                AdvancedBunkers,
-            ],
-            _ => &[],
-        }
+    let mut tech = Tech::default();
+    for (component, &value) in components.iter().zip(values) {
+        component.assign(&mut tech, value);
     }
-
-    /// Decode a save `Values.Byte` array (build progress 0-100 per slot) into a
-    /// labeled [`Tech`] for this structure. Returns `None` when the structure
-    /// has no tech or the save carries no values.
-    pub fn parse_tech(&self, values: &[u8]) -> Option<Tech> {
-        let components = self.tech_components();
-        if components.is_empty() || values.is_empty() {
-            return None;
-        }
-
-        let mut tech = Tech::default();
-        for (component, &value) in components.iter().zip(values) {
-            component.assign(&mut tech, value);
-        }
-        Some(tech)
-    }
+    Some(tech)
 }
 
 /// A single garrison/upgrade tech component (a value of the in-game
@@ -315,9 +206,11 @@ pub struct Stockpile {
     #[serde(default)]
     pub name: String,
 
-    /// Type of stockpile
+    /// Type of stockpile, as the in-game CodeName (e.g. "Seaport"). Kept as a
+    /// free-form string so newly added in-game structure types remain valid
+    /// rather than collapsing to "Undefined".
     #[serde(rename = "type")]
-    pub stockpile_type: StockpileType,
+    pub stockpile_type: String,
 
     /// Faction that owns the stockpile ("Warden" or "Colonial")
     pub faction: Faction,
@@ -371,10 +264,11 @@ impl Stockpile {
             .map(|c| format!("{:.6},{:.6}", c.x, c.y))
             .unwrap_or_else(|| "0,0".to_string());
 
-        let type_str = serde_json::to_string(&self.stockpile_type)
-            .unwrap_or_else(|_| "\"Undefined\"".to_string())
-            .trim_matches('"')
-            .to_string();
+        let type_str = if self.stockpile_type.is_empty() {
+            "Undefined"
+        } else {
+            &self.stockpile_type
+        };
 
         format!(
             "{}:{}:{}:{}",
@@ -425,27 +319,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_stockpile_type_from_code_name() {
-        assert_eq!(
-            StockpileType::from_code_name("Seaport"),
-            StockpileType::Seaport
-        );
-        assert_eq!(
-            StockpileType::from_code_name("StorageFacility"),
-            StockpileType::StorageDepot
-        );
-        assert_eq!(
-            StockpileType::from_code_name("Unknown"),
-            StockpileType::Undefined
-        );
-    }
-
-    #[test]
     fn test_parse_tech_garrison_station() {
         // GarrisonStation: index 3 = RadioStation, 4 = ArtilleryShelter.
-        let tech = StockpileType::SafeHouse
-            .parse_tech(&[100, 50, 0, 30, 0])
-            .unwrap();
+        let tech = parse_tech("GarrisonStation", &[100, 50, 0, 30, 0]).unwrap();
         assert_eq!(tech.provisional_garrison, Some(100));
         assert_eq!(tech.small_garrison, Some(50));
         assert_eq!(tech.large_garrison, Some(0));
@@ -460,24 +336,18 @@ mod tests {
     fn test_parse_tech_index3_differs_by_type() {
         // The 4th value is Fortifications for a RelicBase but RadioStation for
         // a GarrisonStation - position is per-type, meaning is shared.
-        let relic = StockpileType::RelicBase
-            .parse_tech(&[100, 100, 100, 80])
-            .unwrap();
+        let relic = parse_tech("RelicBase1", &[100, 100, 100, 80]).unwrap();
         assert_eq!(relic.fortifications, Some(80));
         assert_eq!(relic.radio_station, None);
 
-        let garrison = StockpileType::SafeHouse
-            .parse_tech(&[100, 100, 100, 80, 0])
-            .unwrap();
+        let garrison = parse_tech("GarrisonStation", &[100, 100, 100, 80, 0]).unwrap();
         assert_eq!(garrison.radio_station, Some(80));
         assert_eq!(garrison.fortifications, None);
     }
 
     #[test]
     fn test_parse_tech_fort_base_full_eleven_slots() {
-        let tech = StockpileType::BunkerBase2
-            .parse_tech(&[100, 100, 70, 100, 100, 0, 0, 0, 0, 0, 0])
-            .unwrap();
+        let tech = parse_tech("FortBaseT2", &[100, 100, 70, 100, 100, 0, 0, 0, 0, 0, 0]).unwrap();
         assert_eq!(tech.t1_garrison, Some(100));
         assert_eq!(tech.t2_garrison, Some(100));
         assert_eq!(tech.advanced_bunkers, Some(0));
@@ -485,9 +355,7 @@ mod tests {
 
     #[test]
     fn test_parse_tech_serializes_in_tree_order() {
-        let tech = StockpileType::TownBase1
-            .parse_tech(&[100, 18, 0, 10, 0, 0])
-            .unwrap();
+        let tech = parse_tech("TownBase1", &[100, 18, 0, 10, 0, 0]).unwrap();
         let json = serde_json::to_string(&tech).unwrap();
         assert_eq!(
             json,
@@ -498,23 +366,39 @@ mod tests {
     #[test]
     fn test_parse_tech_none_for_non_tech_and_empty() {
         // Facilities/depots have no tech.
-        assert!(StockpileType::Seaport.parse_tech(&[100, 100]).is_none());
+        assert!(parse_tech("Seaport", &[100, 100]).is_none());
         // A base with no values present yields None rather than an empty Tech.
-        assert!(StockpileType::Keep.parse_tech(&[]).is_none());
+        assert!(parse_tech("Keep", &[]).is_none());
+        // An unrecognized CodeName has no known tech layout.
+        assert!(parse_tech("BrandNewBase", &[100, 100]).is_none());
     }
 
     #[test]
     fn test_stockpile_type_serialization() {
-        let st = StockpileType::Seaport;
-        let json = serde_json::to_string(&st).unwrap();
-        assert_eq!(json, "\"Seaport\"");
+        let stockpile = Stockpile {
+            name: String::new(),
+            stockpile_type: "Seaport".to_string(),
+            faction: Faction::Warden,
+            hex: None,
+            coords: None,
+            is_reserve: false,
+            items: vec![],
+            tech: None,
+            timestamp: None,
+            shard: None,
+            ingame_timestamp: None,
+            resolution: None,
+            errors: None,
+        };
+        let json = serde_json::to_string(&stockpile).unwrap();
+        assert!(json.contains(r#""type":"Seaport""#));
     }
 
     #[test]
     fn test_stockpile_to_key() {
         let stockpile = Stockpile {
             name: "Test".to_string(),
-            stockpile_type: StockpileType::Seaport,
+            stockpile_type: "Seaport".to_string(),
             faction: Faction::Warden,
             hex: Some("Westgate".to_string()),
             coords: Some(StockpileCoords { x: 0.5, y: 0.5 }),

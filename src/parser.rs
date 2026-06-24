@@ -8,9 +8,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use uesave::{ByteArray, Properties, Property, Save, SaveReader, StructValue, ValueVec};
 
 use crate::error::{FsSavError, Result};
-use crate::models::{
-    Faction, ParseResult, Stockpile, StockpileCoords, StockpileItem, StockpileType,
-};
+use crate::models::{parse_tech, Faction, ParseResult, Stockpile, StockpileCoords, StockpileItem};
 
 /// Parse a .sav file and extract stockpiles.
 pub fn parse_save<P: AsRef<Path>>(path: P) -> Result<ParseResult> {
@@ -111,7 +109,13 @@ fn parse_tooltip(props: &Properties, faction: Faction) -> Result<Vec<Stockpile>>
 
     // Extract common fields
     let code_name = get_string_prop(props, "CodeName").unwrap_or_default();
-    let stockpile_type = StockpileType::from_code_name(&code_name);
+    // Keep the raw in-game CodeName as the type. Unknown/new types stay valid
+    // instead of collapsing to "Undefined"; only a missing CodeName falls back.
+    let stockpile_type = if code_name.is_empty() {
+        "Undefined".to_string()
+    } else {
+        code_name.clone()
+    };
 
     // Extract map/region info
     let map_id = get_string_prop(props, "MapId").map(|s| {
@@ -161,7 +165,7 @@ fn parse_tooltip(props: &Properties, faction: Faction) -> Result<Vec<Stockpile>>
                     _ => None,
                 })
             })
-            .and_then(|values| stockpile_type.parse_tech(values));
+            .and_then(|values| parse_tech(&stockpile_type, values));
 
         // Main stockpile (public)
         result.push(Stockpile {
