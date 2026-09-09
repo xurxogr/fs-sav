@@ -8,7 +8,10 @@ use chrono::{DateTime, TimeZone, Utc};
 use uesave::{ByteArray, Properties, Property, Save, SaveReader, StructValue, ValueVec};
 
 use crate::error::{FsSavError, Result};
-use crate::models::{parse_tech, Faction, ParseResult, Stockpile, StockpileCoords, StockpileItem};
+use crate::models::{
+    parse_tech, Faction, ParseResult, Stockpile, StockpileCoords, StockpileItem,
+    REFINERY_RECIPE_CODES,
+};
 
 /// Parse a .sav file and extract stockpiles.
 pub fn parse_save<P: AsRef<Path>>(path: P) -> Result<ParseResult> {
@@ -175,6 +178,8 @@ fn parse_tooltip(props: &Properties, faction: Faction) -> Result<Vec<Stockpile>>
             hex: map_id.clone(),
             coords: coords.clone(),
             is_reserve: false,
+            access_level: None,
+            squad_id: None,
             items,
             tech,
             timestamp,
@@ -202,6 +207,8 @@ fn parse_tooltip(props: &Properties, faction: Faction) -> Result<Vec<Stockpile>>
                         hex: map_id.clone(),
                         coords: coords.clone(),
                         is_reserve: true,
+                        access_level: None,
+                        squad_id: None,
                         items: reserve_items,
                         tech: None,
                         timestamp,
@@ -213,6 +220,28 @@ fn parse_tooltip(props: &Properties, faction: Faction) -> Result<Vec<Stockpile>>
                 }
             }
         }
+    }
+
+    // Refinery production queues (squad/personal/public). Queue data is stored
+    // on both the initial and recent details snapshots; entries are collected
+    // from both, with the recent snapshot winning on conflicts since it
+    // reflects the latest tooltip state.
+    let mut entries: Vec<RefineryQueueEntry> = Vec::new();
+    if let Some(StructValue::Struct(inital)) = get_struct_prop(props, "InitalMapItemDetails") {
+        extract_refinery_queue(inital, &mut entries);
+    }
+    if let Some(StructValue::Struct(recent)) = get_struct_prop(props, "RecentMapItemDetails") {
+        extract_refinery_queue(recent, &mut entries);
+    }
+    if !entries.is_empty() {
+        result.extend(build_refinery_queue_stockpiles(
+            &entries,
+            faction,
+            map_id.clone(),
+            coords.clone(),
+            timestamp,
+            timestamp_error.clone(),
+        ));
     }
 
     Ok(result)
@@ -264,6 +293,181 @@ fn parse_stockpile_items(value: &StructValue) -> Vec<StockpileItem> {
     items.extend(parse_items("StructureCrates", true));
 
     items
+}
+
+/// A single refinery queue entry decoded from a details snapshot.
+#[derive(Debug, Clone)]
+struct RefineryQueueEntry {
+    /// Production slot index in the facility's in-game list (0-9)
+    index: i32,
+    /// Amount refined so far in that slot
+    refined: i32,
+    /// Normalized access level: "squad", "personal" or "public"
+    access_level: String,
+    /// Owning squad id (None for personal/public queues)
+    squad_id: Option<i32>,
+}
+
+/// Normalize a raw `ERefineryOrderAccessLevel` enum value to its short form.
+/// e.g. "ERefineryOrderAccessLevel::Squad" -> "squad".
+fn normalize_access_level(raw: Option<&str>) -> Option<String> {
+    let raw = raw?;
+    Some(raw.rsplit("::").next().unwrap_or(raw).to_ascii_lowercase())
+}
+
+/// Decode refinery queue entries from one details snapshot
+/// (`InitalMapItemDetails` or `RecentMapItemDetails`).
+///
+/// Squad orders are stored per storage bay in `RefineryStorages`, where each
+/// bay carries its own `AccessLevel`. Personal/public orders are stored in
+/// `RefineryOrders`, sharing the per-details `RefineryOrderAccessLevel`.
+fn extract_refinery_queue(detail_props: &Properties, entries: &mut Vec<RefineryQueueEntry>) {
+    // Per-storage bays carry their own access level (squad queues).
+    if let Some(ValueVec::Struct(storages)) = get_array_prop(detail_props, "RefineryStorages") {
+        for storage in storages {
+            let StructValue::Struct(storage_props) = storage else {
+                continue;
+            };
+            let (level, squad_id) = match get_struct_prop(storage_props, "AccessLevel") {
+                Some(StructValue::Struct(access_props)) => (
+                    normalize_access_level(get_string_prop(access_props, "Level").as_deref()),
+                    get_int32_prop(access_props, "SquadId").filter(|id| *id != 0),
+                ),
+                _ => (None, None),
+            };
+            let Some(access_level) = level else {
+                continue;
+            };
+            let Some(index) = get_int32_prop(storage_props, "Index") else {
+                continue;
+            };
+            entries.push(RefineryQueueEntry {
+                index,
+                refined: get_int32_prop(storage_props, "Refined").unwrap_or(0),
+                access_level,
+                squad_id,
+            });
+        }
+    }
+
+    // RefineryOrders entries share the per-details RefineryOrderAccessLevel
+    // (personal/public queues).
+    let orders_access =
+        get_struct_prop(detail_props, "RefineryOrderAccessLevel").and_then(|value| match value {
+            StructValue::Struct(access_props) => Some((
+                normalize_access_level(get_string_prop(access_props, "Level").as_deref()),
+                get_int32_prop(access_props, "SquadId").filter(|id| *id != 0),
+            )),
+            _ => None,
+        });
+    if let Some(ValueVec::Struct(orders)) = get_array_prop(detail_props, "RefineryOrders") {
+        for order in orders {
+            let StructValue::Struct(order_props) = order else {
+                continue;
+            };
+            let Some(index) = get_int32_prop(order_props, "Index") else {
+                continue;
+            };
+            // Fall back to "personal" for orders without an access level
+            // struct, matching the game's default.
+            let (level, squad_id) = orders_access
+                .clone()
+                .unwrap_or_else(|| (Some("personal".to_string()), None));
+            let Some(access_level) = level else {
+                continue;
+            };
+            entries.push(RefineryQueueEntry {
+                index,
+                refined: get_int32_prop(order_props, "Refined").unwrap_or(0),
+                access_level,
+                squad_id,
+            });
+        }
+    }
+}
+
+/// Build one `Stockpile` per refinery queue, grouping entries by access level
+/// and squad id. Entries from the recent details snapshot override entries
+/// from the initial snapshot for the same production slot.
+fn build_refinery_queue_stockpiles(
+    entries: &[RefineryQueueEntry],
+    faction: Faction,
+    hex: Option<String>,
+    coords: Option<StockpileCoords>,
+    timestamp: Option<DateTime<Utc>>,
+    errors: Option<Vec<String>>,
+) -> Vec<Stockpile> {
+    // Dedup by (access_level, squad_id, index): later entries (recent
+    // snapshot) override earlier ones (initial snapshot).
+    let mut deduped: Vec<RefineryQueueEntry> = Vec::new();
+    for entry in entries {
+        if let Some(existing) = deduped.iter_mut().find(|existing| {
+            existing.access_level == entry.access_level
+                && existing.squad_id == entry.squad_id
+                && existing.index == entry.index
+        }) {
+            existing.refined = entry.refined;
+        } else {
+            deduped.push(entry.clone());
+        }
+    }
+
+    // Group by (access_level, squad_id), preserving order.
+    let mut groups: Vec<(String, Option<i32>, Vec<&RefineryQueueEntry>)> = Vec::new();
+    for entry in &deduped {
+        match groups.iter_mut().find(|(level, squad_id, _)| {
+            *level == entry.access_level && *squad_id == entry.squad_id
+        }) {
+            Some((_, _, group)) => group.push(entry),
+            None => groups.push((entry.access_level.clone(), entry.squad_id, vec![entry])),
+        }
+    }
+
+    let mut queues: Vec<Stockpile> = Vec::new();
+    for (level, squad_id, group) in groups {
+        // Sort entries by production slot so items keep the in-game order.
+        let mut sorted: Vec<&RefineryQueueEntry> = group;
+        sorted.sort_by_key(|entry| entry.index);
+
+        let items = sorted
+            .iter()
+            .map(|entry| {
+                let code = REFINERY_RECIPE_CODES
+                    .get(entry.index.max(0) as usize)
+                    .map(|code| code.to_string())
+                    .unwrap_or_else(|| "Unknown".to_string());
+                StockpileItem::new(code, entry.refined, false)
+            })
+            .collect();
+
+        // Squad queues are reserve stockpiles; personal/public are not.
+        let is_reserve = level == "squad";
+
+        // Distinguish queues of the same facility for change tracking.
+        let name = match squad_id {
+            Some(squad_id) => format!("{level}:{squad_id}"),
+            None => level.clone(),
+        };
+
+        queues.push(Stockpile {
+            name,
+            stockpile_type: "Refinery".to_string(),
+            faction,
+            hex: hex.clone(),
+            coords: coords.clone(),
+            is_reserve,
+            access_level: Some(level),
+            squad_id,
+            items,
+            tech: None,
+            timestamp,
+            shard: None,
+            ingame_timestamp: None,
+            resolution: None,
+            errors: errors.clone(),
+        });
+    }
+    queues
 }
 
 /// Convert UE ticks to DateTime. Returns None for missing (zero) or
@@ -387,5 +591,31 @@ mod tests {
         let ticks: i64 = 638392320000000000;
         let parsed = parse_ue_timestamp(ticks).expect("valid ticks parse");
         assert!(parsed.year() >= 2023 && parsed.year() <= 2025);
+    }
+
+    #[test]
+    fn test_normalize_access_level() {
+        assert_eq!(
+            normalize_access_level(Some("ERefineryOrderAccessLevel::Squad")).as_deref(),
+            Some("squad")
+        );
+        assert_eq!(
+            normalize_access_level(Some("ERefineryOrderAccessLevel::Personal")).as_deref(),
+            Some("personal")
+        );
+        assert_eq!(
+            normalize_access_level(Some("ERefineryOrderAccessLevel::Public")).as_deref(),
+            Some("public")
+        );
+        assert_eq!(normalize_access_level(None), None);
+    }
+
+    #[test]
+    fn test_refinery_recipe_codes_resolve_all_slots() {
+        assert_eq!(REFINERY_RECIPE_CODES.len(), 10);
+        // The two Gravel recipes share the GroundMaterials code.
+        assert_eq!(REFINERY_RECIPE_CODES[3], "GroundMaterials");
+        assert_eq!(REFINERY_RECIPE_CODES[6], "GroundMaterials");
+        assert_eq!(REFINERY_RECIPE_CODES[9], "AluminumA");
     }
 }

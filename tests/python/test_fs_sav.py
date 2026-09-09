@@ -208,3 +208,66 @@ class TestStockpileTypes:
         }
 
         assert types == expected_types
+
+
+class TestRefineryQueues:
+    """Tests for refinery production queue extraction."""
+
+    REFINERY_SAV_PATH = "tests/fixtures/refinery_mapdata.sav"
+
+    def test_squad_queue(self):
+        """Squad queues should be emitted as reserve stockpiles."""
+        stockpiles = fs_sav.parse_save(self.REFINERY_SAV_PATH)
+
+        squad_queues = [s for s in stockpiles if s.get("access_level") == "squad"]
+        assert len(squad_queues) == 1
+
+        queue = squad_queues[0]
+        assert queue["type"] == "Refinery"
+        assert queue["squad_id"] == 1
+        assert queue["is_reserve"] is True
+        assert queue["name"] == "squad:1"
+        assert queue["hex"] == "TerminusHex"
+
+        # Recent snapshot wins: slot 0 shows 10, not the initial 18060.
+        quantities = {item["code"]: item["quantity"] for item in queue["items"]}
+        assert quantities["Cloth"] == 10
+        assert quantities["Diesel"] == 5309
+        assert quantities["Explosive"] == 3295
+        assert len(queue["items"]) == 7
+
+    def test_public_queue(self):
+        """Public queues should be emitted with access_level 'public'."""
+        stockpiles = fs_sav.parse_save(self.REFINERY_SAV_PATH)
+
+        public_queues = [s for s in stockpiles if s.get("access_level") == "public"]
+        assert len(public_queues) == 1
+
+        queue = public_queues[0]
+        assert queue["type"] == "Refinery"
+        assert queue.get("squad_id") is None
+        assert queue["is_reserve"] is False
+        assert len(queue["items"]) == 1
+        assert queue["items"][0]["code"] == "Cloth"
+        assert queue["items"][0]["quantity"] == 50
+
+    def test_storage_has_no_access_level(self):
+        """The refinery storage stockpile must not carry queue fields."""
+        stockpiles = fs_sav.parse_save(self.REFINERY_SAV_PATH)
+
+        storages = [
+            s
+            for s in stockpiles
+            if s["type"] == "Refinery" and s.get("access_level") is None
+        ]
+        assert storages, "refinery storage must be present"
+        for storage in storages:
+            assert storage.get("squad_id") is None
+
+    def test_filters_apply_to_queues(self):
+        """Reserve filter should pick up squad queues."""
+        reserves = fs_sav.parse_save(self.REFINERY_SAV_PATH, reserves=True)
+        assert any(s.get("access_level") == "squad" for s in reserves)
+
+        public = fs_sav.parse_save(self.REFINERY_SAV_PATH, public=True)
+        assert not any(s.get("access_level") == "squad" for s in public)

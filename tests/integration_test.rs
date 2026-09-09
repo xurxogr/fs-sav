@@ -121,3 +121,103 @@ fn test_coordinates_valid() {
         }
     }
 }
+
+const TEST_REFINERY_SAV_PATH: &str = "tests/fixtures/refinery_mapdata.sav";
+
+#[test]
+fn test_refinery_squad_queue() {
+    let result = parse_save(TEST_REFINERY_SAV_PATH).expect("Failed to parse fixture");
+
+    let squad_queues: Vec<_> = result
+        .stockpiles
+        .iter()
+        .filter(|s| s.access_level.as_deref() == Some("squad"))
+        .collect();
+    assert_eq!(squad_queues.len(), 1, "expected one squad queue");
+
+    let queue = squad_queues[0];
+    assert_eq!(queue.squad_id, Some(1));
+    assert_eq!(queue.stockpile_type, "Refinery");
+    assert_eq!(queue.hex.as_deref(), Some("TerminusHex"));
+    assert!(queue.is_reserve, "squad queues are reserve stockpiles");
+    assert_eq!(queue.name, "squad:1");
+
+    // 7 bays carry orders; slot 3 has no order and must be absent.
+    assert_eq!(queue.items.len(), 7);
+
+    // The recent details snapshot wins over the initial one: slot 0 shows
+    // 10 (recent), not 18060 (initial).
+    let find = |code: &str| queue.items.iter().find(|i| i.code == code).unwrap();
+    assert_eq!(find("Cloth").quantity, 10);
+    assert_eq!(find("Diesel").quantity, 5309);
+    assert_eq!(find("Explosive").quantity, 3295);
+    assert_eq!(find("HeavyExplosive").quantity, 0);
+    assert_eq!(find("Wood").quantity, 0);
+    assert_eq!(find("GroundMaterials").quantity, 0);
+    assert_eq!(find("IronA").quantity, 0);
+}
+
+#[test]
+fn test_refinery_public_queue() {
+    let result = parse_save(TEST_REFINERY_SAV_PATH).expect("Failed to parse fixture");
+
+    let public_queues: Vec<_> = result
+        .stockpiles
+        .iter()
+        .filter(|s| s.access_level.as_deref() == Some("public"))
+        .collect();
+    assert_eq!(public_queues.len(), 1, "expected one public queue");
+
+    let queue = public_queues[0];
+    assert_eq!(queue.squad_id, None);
+    assert_eq!(queue.stockpile_type, "Refinery");
+    assert!(
+        !queue.is_reserve,
+        "public queues are not reserve stockpiles"
+    );
+    assert_eq!(queue.name, "public");
+    assert_eq!(queue.items.len(), 1);
+    assert_eq!(queue.items[0].code, "Cloth");
+    assert_eq!(queue.items[0].quantity, 50);
+}
+
+#[test]
+fn test_refinery_storage_stockpile_has_no_access_level() {
+    let result = parse_save(TEST_REFINERY_SAV_PATH).expect("Failed to parse fixture");
+
+    // The refinery's public storage (uncollected output) is emitted by the
+    // existing tooltip logic and must not carry queue fields.
+    let storages: Vec<_> = result
+        .stockpiles
+        .iter()
+        .filter(|s| s.stockpile_type == "Refinery" && s.access_level.is_none())
+        .collect();
+    assert!(!storages.is_empty(), "refinery storage must be present");
+    for storage in storages {
+        assert_eq!(storage.squad_id, None);
+    }
+}
+
+#[test]
+fn test_refinery_queue_items_sorted_by_slot() {
+    let result = parse_save(TEST_REFINERY_SAV_PATH).expect("Failed to parse fixture");
+
+    let queue = result
+        .stockpiles
+        .iter()
+        .find(|s| s.access_level.as_deref() == Some("squad"))
+        .expect("squad queue");
+
+    // Items keep the in-game production slot order.
+    let expected_order = [
+        "Cloth",
+        "Diesel",
+        "Explosive",
+        "Wood",
+        "HeavyExplosive",
+        "GroundMaterials",
+        "IronA",
+    ];
+    let actual: Vec<_> = queue.items.iter().map(|i| i.code.as_str()).collect();
+    assert_eq!(actual, expected_order);
+}

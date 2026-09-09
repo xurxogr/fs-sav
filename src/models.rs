@@ -164,6 +164,27 @@ pub enum Faction {
     Colonial,
 }
 
+/// Recipe codes for refinery production slots, in the in-game UI order.
+///
+/// The save stores only the slot index of a refinery order, not the produced
+/// item, so resolving a slot to an item requires this table. The order was
+/// verified against the in-game refinery production list:
+/// Basic Materials, Diesel, Explosive Mats, Gravel (Salvage), Refined
+/// Materials, Heavy Explosive, Gravel (Coal), Iron Alloy, Copper Alloy,
+/// Aluminum Alloy. Must be re-verified on game updates.
+pub const REFINERY_RECIPE_CODES: [&str; 10] = [
+    "Cloth",
+    "Diesel",
+    "Explosive",
+    "GroundMaterials",
+    "Wood",
+    "HeavyExplosive",
+    "GroundMaterials",
+    "IronA",
+    "CopperA",
+    "AluminumA",
+];
+
 /// Normalized map coordinates for a stockpile location.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StockpileCoords {
@@ -226,6 +247,15 @@ pub struct Stockpile {
     /// Whether this is a reserve stockpile
     #[serde(default)]
     pub is_reserve: bool,
+
+    /// Refinery queue access level ("squad", "personal" or "public"; None for
+    /// non-queue stockpiles)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_level: Option<String>,
+
+    /// Owning squad id for a squad refinery queue (None otherwise)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub squad_id: Option<i32>,
 
     /// List of items in the stockpile
     #[serde(default)]
@@ -382,6 +412,8 @@ mod tests {
             hex: None,
             coords: None,
             is_reserve: false,
+            access_level: None,
+            squad_id: None,
             items: vec![],
             tech: None,
             timestamp: None,
@@ -403,6 +435,8 @@ mod tests {
             hex: Some("Westgate".to_string()),
             coords: Some(StockpileCoords { x: 0.5, y: 0.5 }),
             is_reserve: false,
+            access_level: None,
+            squad_id: None,
             items: vec![],
             tech: None,
             timestamp: Some(Utc::now()),
