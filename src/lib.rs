@@ -30,7 +30,9 @@ pub mod watcher;
 
 // Re-export main types for convenience
 pub use error::{FsSavError, Result};
-pub use models::{ParseResult, ParserInfo, Stockpile, StockpileCoords, StockpileItem};
+pub use models::{
+    ParseResult, ParserInfo, Stockpile, StockpileCoords, StockpileItem, REFINERY_RECIPE_CODES,
+};
 pub use parser::{parse_save, parse_save_bytes};
 pub use watcher::{watch_save, WatchHandle};
 

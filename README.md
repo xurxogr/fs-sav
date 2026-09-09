@@ -173,6 +173,43 @@ The output is a JSON array of stockpiles:
 ]
 ```
 
+## Refinery Production Queues
+
+Refinery tooltips additionally carry their production queue. The parser emits
+one stockpile per queue, grouped by access level:
+
+```json
+[
+  {
+    "name": "squad:1",
+    "type": "Refinery",
+    "hex": "TerminusHex",
+    "is_reserve": true,
+    "access_level": "squad",
+    "squad_id": 1,
+    "items": [
+      { "code": "Cloth", "quantity": 10, "crated": false },
+      { "code": "Diesel", "quantity": 5309, "crated": false }
+    ],
+    "timestamp": "2024-01-15T10:29:00Z"
+  },
+  {
+    "name": "public",
+    "type": "Refinery",
+    "is_reserve": false,
+    "access_level": "public",
+    "items": [{ "code": "Cloth", "quantity": 50, "crated": false }]
+  }
+]
+```
+
+- `access_level` is one of `squad`, `personal` or `public` (only present on
+  queue stockpiles).
+- `squad_id` identifies the owning squad for squad queues.
+- Squad queues are emitted as reserve stockpiles (`is_reserve: true`).
+- Items are the recipe slot outputs (slot index resolved via the in-game
+  refinery production order) with the amount refined so far.
+
 ## Stockpile Types
 
 The parser recognizes all Foxhole stockpile types:
