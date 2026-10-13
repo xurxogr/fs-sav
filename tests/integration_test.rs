@@ -8,8 +8,14 @@ const TEST_SAV_PATH: &str = "tests/fixtures/test.sav";
 fn test_parse_test_sav() {
     let result = parse_save(TEST_SAV_PATH).expect("Failed to parse test.sav");
 
-    // Should find 26 stockpiles
-    assert_eq!(result.stockpiles.len(), 26);
+    // Only TownBase3 has current details; the other 25 pinned tooltips were
+    // last updated with their details withheld and are skipped.
+    assert_eq!(result.stockpiles.len(), 1);
+    assert_eq!(result.warnings.len(), 25);
+    assert!(result
+        .warnings
+        .iter()
+        .all(|w| w.contains("details were withheld")));
 
     // All stockpiles should have a hex
     for stockpile in &result.stockpiles {
@@ -19,14 +25,43 @@ fn test_parse_test_sav() {
 }
 
 #[test]
+fn test_withheld_tooltip_tech_not_read_from_initial_details() {
+    let result = parse_save(TEST_SAV_PATH).expect("Failed to parse test.sav");
+
+    // TownBase1's initial snapshot has tech values, but its latest details
+    // were withheld: it must be skipped, not reported with stale tech.
+    assert!(result
+        .stockpiles
+        .iter()
+        .all(|s| s.stockpile_type != "TownBase1"));
+
+    // TownBase3's latest details are current and carry its tech.
+    let townbase3 = result
+        .stockpiles
+        .iter()
+        .find(|s| s.stockpile_type == "TownBase3")
+        .expect("Should have TownBase3");
+    let tech = townbase3.tech.as_ref().expect("TownBase3 should have tech");
+    assert_eq!(tech.large_garrison, Some(100));
+    assert_eq!(tech.fortifications, Some(100));
+}
+
+#[test]
 fn test_stockpile_types_coverage() {
     let result = parse_save(TEST_SAV_PATH).expect("Failed to parse test.sav");
 
-    // Collect all unique types (raw in-game CodeNames)
+    // Every pinned tooltip is accounted for, either as a stockpile or as a
+    // skipped-tooltip warning (which starts with the raw in-game CodeName).
     let types: std::collections::HashSet<_> = result
         .stockpiles
         .iter()
         .map(|s| s.stockpile_type.as_str())
+        .chain(
+            result
+                .warnings
+                .iter()
+                .filter_map(|w| w.split_whitespace().next()),
+        )
         .collect();
 
     // Should have all expected stockpile types
@@ -88,17 +123,25 @@ fn test_stockpile_with_items() {
 fn test_hex_names() {
     let result = parse_save(TEST_SAV_PATH).expect("Failed to parse test.sav");
 
-    // Collect all unique hex names
+    // Hex names are cleaned from the save enum value
+    // ("EWorldConquestMapId::DeadLandsHex" -> "DeadLandsHex").
     let hexes: std::collections::HashSet<_> = result
         .stockpiles
         .iter()
         .filter_map(|s| s.hex.as_deref())
         .collect();
+    assert_eq!(hexes, std::collections::HashSet::from(["DeadLandsHex"]));
 
-    // Should have various hexes
-    assert!(hexes.contains("TerminusHex"));
-    assert!(hexes.contains("ReaversPassHex"));
-    assert!(hexes.contains("DeadLandsHex"));
+    // Skipped tooltips name their hex in the warning.
+    for hex in ["TerminusHex", "ReaversPassHex", "DeadLandsHex"] {
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains(&format!(" at {hex} "))),
+            "no warning for {hex}"
+        );
+    }
 }
 
 #[test]

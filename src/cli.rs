@@ -177,7 +177,13 @@ where
             filters,
         } => {
             let stockpiles = match file {
-                Some(path) => parse_save(&path)?.stockpiles,
+                Some(path) => {
+                    let result = parse_save(&path)?;
+                    for warning in &result.warnings {
+                        eprintln!("Warning: {}", warning);
+                    }
+                    result.stockpiles
+                }
                 None => {
                     let mut buffer = Vec::new();
                     io::stdin().read_to_end(&mut buffer)?;

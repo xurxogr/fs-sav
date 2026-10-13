@@ -173,6 +173,11 @@ The output is a JSON array of stockpiles:
 ]
 ```
 
+Only the latest details of each pinned tooltip are read. A tooltip whose
+latest details were withheld (the player was not on the structure's side when
+it was last updated) carries no current data and is skipped; `parse_save`
+lists it in `ParseResult.warnings` and the CLI prints it to stderr.
+
 ## Refinery Data
 
 The main stockpile of a refinery also carries a `refinery` object with its

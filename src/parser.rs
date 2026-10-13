@@ -38,14 +38,14 @@ pub fn parse_save<P: AsRef<Path>>(path: P) -> Result<ParseResult> {
         .map_err(|e| FsSavError::ParseError(e.to_string()))?;
 
     // Extract stockpiles from the save
-    let stockpiles = extract_stockpiles(&save)?;
+    let (stockpiles, warnings) = extract_stockpiles(&save)?;
 
     Ok(ParseResult {
         parsed_at: Utc::now(),
         save_file: path.display().to_string(),
         save_file_modified: modified,
         stockpiles,
-        warnings: vec![],
+        warnings,
     })
 }
 
@@ -58,12 +58,14 @@ pub fn parse_save_bytes(data: &[u8]) -> Result<Vec<Stockpile>> {
         .read(&mut cursor)
         .map_err(|e| FsSavError::ParseError(e.to_string()))?;
 
-    extract_stockpiles(&save)
+    extract_stockpiles(&save).map(|(stockpiles, _)| stockpiles)
 }
 
-/// Extract stockpiles from parsed save data.
-fn extract_stockpiles(save: &Save) -> Result<Vec<Stockpile>> {
+/// Extract stockpiles from parsed save data, along with warnings about
+/// tooltips that were skipped.
+fn extract_stockpiles(save: &Save) -> Result<(Vec<Stockpile>, Vec<String>)> {
     let mut stockpiles = Vec::new();
+    let mut warnings = Vec::new();
 
     // Navigate to root.properties
     let properties = &save.root.properties;
@@ -92,7 +94,7 @@ fn extract_stockpiles(save: &Save) -> Result<Vec<Stockpile>> {
         // Parse each tooltip
         for tooltip in tooltips {
             if let StructValue::Struct(props) = tooltip {
-                match parse_tooltip(props, faction) {
+                match parse_tooltip(props, faction, &mut warnings) {
                     Ok(mut parsed) => stockpiles.append(&mut parsed),
                     Err(e) => {
                         // Log warning but continue
@@ -103,11 +105,21 @@ fn extract_stockpiles(save: &Save) -> Result<Vec<Stockpile>> {
         }
     }
 
-    Ok(stockpiles)
+    Ok((stockpiles, warnings))
 }
 
-/// Parse a single tooltip into stockpiles (main + reserves).
-fn parse_tooltip(props: &Properties, faction: Faction) -> Result<Vec<Stockpile>> {
+/// `Flags` bit set when the details were withheld because the player was not
+/// on the structure's side when they were last updated. Nothing else is filled
+/// in then, so the tooltip carries no current data.
+const DETAILS_WITHHELD: i32 = 0x4;
+
+/// Parse a single tooltip into stockpiles (main + reserves). A tooltip whose
+/// latest details were withheld yields no stockpiles and adds a warning.
+fn parse_tooltip(
+    props: &Properties,
+    faction: Faction,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<Stockpile>> {
     let mut result = Vec::new();
 
     // Extract common fields
@@ -145,33 +157,32 @@ fn parse_tooltip(props: &Properties, faction: Faction) -> Result<Vec<Stockpile>>
         .is_none()
         .then(|| vec!["missing or invalid LastUpdated timestamp".to_string()]);
 
-    // Get stockpile details from RecentMapItemDetails
+    // Only the latest details (RecentMapItemDetails) are read: the initial
+    // snapshot keeps the state from when the tooltip was first shown.
     let details = get_struct_prop(props, "RecentMapItemDetails");
 
     if let Some(StructValue::Struct(detail_props)) = details {
+        let flags = get_int32_prop(detail_props, "Flags").unwrap_or(0);
+        if flags & DETAILS_WITHHELD != 0 {
+            warnings.push(format!(
+                "{stockpile_type} at {} skipped: its latest details were withheld \
+                 (not on the structure's side when last updated)",
+                map_id.as_deref().unwrap_or("unknown hex")
+            ));
+            return Ok(result);
+        }
+
         // Parse main stockpile items
         let stockpile_info = get_struct_prop(detail_props, "StockpileInfo");
         let items = stockpile_info
             .map(parse_stockpile_items)
             .unwrap_or_default();
 
-        // Garrison/upgrade tech build progress (bases only). Prefer the recent
-        // snapshot, but fall back to the initial details since the recent
-        // Values array is often empty for tooltips not recently expanded.
+        // Garrison/upgrade tech build progress (bases only)
         let tech = get_byte_array_prop(detail_props, "Values")
-            .filter(|values| !values.is_empty())
-            .or_else(|| {
-                get_struct_prop(props, "InitalMapItemDetails").and_then(|sv| match sv {
-                    StructValue::Struct(inital_props) => {
-                        get_byte_array_prop(inital_props, "Values")
-                    }
-                    _ => None,
-                })
-            })
             .and_then(|values| parse_tech(&stockpile_type, values));
 
-        // Refinery queue and stored output. Only the recent snapshot is read:
-        // the initial one keeps the state from when the tooltip was pinned.
+        // Refinery queue and stored output
         let refinery = parse_refinery(detail_props, &stockpile_type);
 
         // Main stockpile (public)
