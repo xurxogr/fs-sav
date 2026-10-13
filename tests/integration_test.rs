@@ -9,13 +9,14 @@ fn test_parse_test_sav() {
     let result = parse_save(TEST_SAV_PATH).expect("Failed to parse test.sav");
 
     // Only TownBase3 has current details; the other 25 pinned tooltips were
-    // last updated with their details withheld and are skipped.
+    // last updated without details (the game had none for them) and are
+    // skipped.
     assert_eq!(result.stockpiles.len(), 1);
     assert_eq!(result.warnings.len(), 25);
     assert!(result
         .warnings
         .iter()
-        .all(|w| w.contains("details were withheld")));
+        .all(|w| w.contains("the game had no details for it")));
 
     // All stockpiles should have a hex
     for stockpile in &result.stockpiles {
@@ -25,11 +26,11 @@ fn test_parse_test_sav() {
 }
 
 #[test]
-fn test_withheld_tooltip_tech_not_read_from_initial_details() {
+fn test_unavailable_tooltip_tech_not_read_from_initial_details() {
     let result = parse_save(TEST_SAV_PATH).expect("Failed to parse test.sav");
 
     // TownBase1's initial snapshot has tech values, but its latest details
-    // were withheld: it must be skipped, not reported with stale tech.
+    // carry no data: it must be skipped, not reported with stale tech.
     assert!(result
         .stockpiles
         .iter()
@@ -237,4 +238,16 @@ fn test_refinery_data_does_not_create_stockpiles() {
         .iter()
         .filter(|s| s.stockpile_type != "Refinery")
         .all(|s| s.refinery.is_none()));
+}
+
+#[test]
+fn test_parse_save_bytes_reports_warnings() {
+    let data = std::fs::read(TEST_SAV_PATH).expect("Failed to read test.sav");
+    let parsed = fs_sav::parse_save_bytes(&data).expect("Failed to parse test.sav");
+    let from_file = parse_save(TEST_SAV_PATH).expect("Failed to parse test.sav");
+
+    // Bytes and file parsing yield the same stockpiles and warnings.
+    assert_eq!(parsed.stockpiles, from_file.stockpiles);
+    assert_eq!(parsed.warnings, from_file.warnings);
+    assert_eq!(parsed.warnings.len(), 25);
 }

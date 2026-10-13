@@ -47,6 +47,8 @@ module-name = "fs_sav"
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
+# The test save skips most tooltips; tests that check it use pytest.warns.
+filterwarnings = ["ignore:.* skipped:UserWarning"]
 
 [tool.ruff]
 target-version = "py39"

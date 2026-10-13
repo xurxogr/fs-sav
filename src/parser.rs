@@ -9,8 +9,9 @@ use uesave::{ByteArray, Properties, Property, Save, SaveReader, StructValue, Val
 
 use crate::error::{FsSavError, Result};
 use crate::models::{
-    parse_tech, refinery_recipe_code, Faction, ParseResult, Refinery, RefineryAccess,
-    RefineryAccessLevel, RefineryOrder, RefineryStorage, Stockpile, StockpileCoords, StockpileItem,
+    parse_tech, refinery_recipe_code, Faction, ParseResult, ParsedStockpiles, Refinery,
+    RefineryAccess, RefineryAccessLevel, RefineryOrder, RefineryStorage, Stockpile,
+    StockpileCoords, StockpileItem,
 };
 
 /// Parse a .sav file and extract stockpiles.
@@ -38,19 +39,19 @@ pub fn parse_save<P: AsRef<Path>>(path: P) -> Result<ParseResult> {
         .map_err(|e| FsSavError::ParseError(e.to_string()))?;
 
     // Extract stockpiles from the save
-    let (stockpiles, warnings) = extract_stockpiles(&save)?;
+    let parsed = extract_stockpiles(&save);
 
     Ok(ParseResult {
         parsed_at: Utc::now(),
         save_file: path.display().to_string(),
         save_file_modified: modified,
-        stockpiles,
-        warnings,
+        stockpiles: parsed.stockpiles,
+        warnings: parsed.warnings,
     })
 }
 
 /// Parse a .sav file from bytes.
-pub fn parse_save_bytes(data: &[u8]) -> Result<Vec<Stockpile>> {
+pub fn parse_save_bytes(data: &[u8]) -> Result<ParsedStockpiles> {
     let mut cursor = Cursor::new(data);
 
     let save = SaveReader::new()
@@ -58,12 +59,12 @@ pub fn parse_save_bytes(data: &[u8]) -> Result<Vec<Stockpile>> {
         .read(&mut cursor)
         .map_err(|e| FsSavError::ParseError(e.to_string()))?;
 
-    extract_stockpiles(&save).map(|(stockpiles, _)| stockpiles)
+    Ok(extract_stockpiles(&save))
 }
 
 /// Extract stockpiles from parsed save data, along with warnings about
-/// tooltips that were skipped.
-fn extract_stockpiles(save: &Save) -> Result<(Vec<Stockpile>, Vec<String>)> {
+/// tooltips that yielded none.
+fn extract_stockpiles(save: &Save) -> ParsedStockpiles {
     let mut stockpiles = Vec::new();
     let mut warnings = Vec::new();
 
@@ -96,25 +97,31 @@ fn extract_stockpiles(save: &Save) -> Result<(Vec<Stockpile>, Vec<String>)> {
             if let StructValue::Struct(props) = tooltip {
                 match parse_tooltip(props, faction, &mut warnings) {
                     Ok(mut parsed) => stockpiles.append(&mut parsed),
-                    Err(e) => {
-                        // Log warning but continue
-                        eprintln!("Warning: Failed to parse tooltip: {}", e);
-                    }
+                    // Report it but keep parsing the other tooltips
+                    Err(e) => warnings.push(format!("failed to parse tooltip: {e}")),
                 }
             }
         }
     }
 
-    Ok((stockpiles, warnings))
+    ParsedStockpiles {
+        stockpiles,
+        warnings,
+    }
 }
 
-/// `Flags` bit set when the details were withheld because the player was not
-/// on the structure's side when they were last updated. Nothing else is filled
-/// in then, so the tooltip carries no current data.
-const DETAILS_WITHHELD: i32 = 0x4;
+/// `Flags` bit set when the details carry no data: either they were withheld
+/// because the player was not on the structure's side, or the game had no
+/// details for the structure (not found, or the tooltip could not be matched
+/// to it). Nothing else is filled in then.
+const DETAILS_UNAVAILABLE: i32 = 0x4;
+
+/// `Flags` bit set on details the game actually provided for the structure.
+/// Together with [`DETAILS_UNAVAILABLE`] it means they were withheld.
+const DETAILS_PROVIDED: i32 = 0x80;
 
 /// Parse a single tooltip into stockpiles (main + reserves). A tooltip whose
-/// latest details were withheld yields no stockpiles and adds a warning.
+/// latest details carry no data yields no stockpiles and adds a warning.
 fn parse_tooltip(
     props: &Properties,
     faction: Faction,
@@ -163,10 +170,14 @@ fn parse_tooltip(
 
     if let Some(StructValue::Struct(detail_props)) = details {
         let flags = get_int32_prop(detail_props, "Flags").unwrap_or(0);
-        if flags & DETAILS_WITHHELD != 0 {
+        if flags & DETAILS_UNAVAILABLE != 0 {
+            let reason = if flags & DETAILS_PROVIDED != 0 {
+                "its latest details were withheld (not on the structure's side)"
+            } else {
+                "the game had no details for it when it was last updated"
+            };
             warnings.push(format!(
-                "{stockpile_type} at {} skipped: its latest details were withheld \
-                 (not on the structure's side when last updated)",
+                "{stockpile_type} at {} skipped: {reason}",
                 map_id.as_deref().unwrap_or("unknown hex")
             ));
             return Ok(result);
@@ -395,7 +406,9 @@ fn get_int32_prop(props: &Properties, name: &str) -> Option<i32> {
     props.0.iter().find_map(|(key, prop)| {
         if name_matches(&key.1, name) {
             // Foxhole stores integer fields with varying property types
-            // (e.g. UInt32Property for Quantity), so accept any integer variant.
+            // (e.g. Int16Property for item Quantity, UInt16Property for
+            // refinery counts, ByteProperty for indexes), so accept any
+            // integer variant.
             return match prop {
                 Property::Int(v) => Some(*v),
                 Property::Int8(v) => Some(*v as i32),

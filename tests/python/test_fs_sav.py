@@ -21,7 +21,7 @@ class TestParseSave:
         """parse_save should only return tooltips with current details."""
         stockpiles = fs_sav.parse_save(TEST_SAV_PATH)
         # 25 of the 26 pinned tooltips were last updated with their details
-        # withheld and are skipped.
+        # without details and are skipped.
         assert len(stockpiles) == 1
 
     def test_stockpile_has_required_fields(self):
@@ -178,8 +178,8 @@ class TestInfo:
 class TestStockpileTypes:
     """Tests for stockpile type coverage."""
 
-    def test_withheld_tooltips_skipped(self):
-        """Tooltips whose latest details were withheld are not returned."""
+    def test_unavailable_tooltips_skipped(self):
+        """Tooltips whose latest details carry no data are not returned."""
         stockpiles = fs_sav.parse_save(TEST_SAV_PATH)
         types = {s["type"] for s in stockpiles}
 
@@ -226,3 +226,27 @@ class TestRefinery:
         assert all(
             "refinery" not in s for s in stockpiles if s["type"] != "Refinery" or s["is_reserve"]
         )
+
+
+class TestWarnings:
+    """Tests for warnings about skipped tooltips."""
+
+    def test_parse_save_warns_for_skipped_tooltips(self):
+        """Each skipped tooltip is reported as a UserWarning."""
+        with pytest.warns(UserWarning) as record:
+            stockpiles = fs_sav.parse_save(TEST_SAV_PATH)
+
+        assert len(stockpiles) == 1
+        messages = [str(w.message) for w in record]
+        assert len(messages) == 25
+        assert all("the game had no details for it" in m for m in messages)
+
+    def test_parse_save_bytes_warns_for_skipped_tooltips(self):
+        """parse_save_bytes reports the same warnings as parse_save."""
+        with open(TEST_SAV_PATH, "rb") as f:
+            data = f.read()
+
+        with pytest.warns(UserWarning) as record:
+            fs_sav.parse_save_bytes(data)
+
+        assert len(record) == 25

@@ -31,8 +31,8 @@ pub mod watcher;
 // Re-export main types for convenience
 pub use error::{FsSavError, Result};
 pub use models::{
-    ParseResult, ParserInfo, Refinery, RefineryAccess, RefineryAccessLevel, RefineryOrder,
-    RefineryStorage, Stockpile, StockpileCoords, StockpileItem,
+    ParseResult, ParsedStockpiles, ParserInfo, Refinery, RefineryAccess, RefineryAccessLevel,
+    RefineryOrder, RefineryStorage, Stockpile, StockpileCoords, StockpileItem,
 };
 pub use parser::{parse_save, parse_save_bytes};
 pub use watcher::{watch_save, WatchHandle};
@@ -111,6 +111,17 @@ mod python {
             .collect()
     }
 
+    /// Emit each parse warning as a Python `UserWarning`.
+    fn emit_warnings(py: Python<'_>, warnings: &[String]) -> PyResult<()> {
+        let category = py.get_type::<pyo3::exceptions::PyUserWarning>();
+        for warning in warnings {
+            let message = std::ffi::CString::new(warning.as_str())
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+            PyErr::warn(py, &category, &message, 1)?;
+        }
+        Ok(())
+    }
+
     /// Convert stockpiles to Python list
     fn stockpiles_to_py(py: Python<'_>, stockpiles: Vec<Stockpile>) -> PyResult<Py<PyAny>> {
         let json_str = serde_json::to_string(&stockpiles)
@@ -134,6 +145,10 @@ mod python {
     ///
     /// Returns:
     ///     List of stockpile dictionaries
+    ///
+    /// Warns:
+    ///     UserWarning: For each pinned tooltip that yielded no stockpiles
+    ///         (its latest details were withheld, or it could not be read).
     #[pyfunction]
     #[pyo3(signature = (path, *, public=false, reserves=false, hex=None, stockpile_type=None, faction=None, with_items=false))]
     fn parse_save(
@@ -160,7 +175,10 @@ mod python {
             with_items,
         );
 
-        Python::with_gil(|py| stockpiles_to_py(py, stockpiles))
+        Python::with_gil(|py| {
+            emit_warnings(py, &result.warnings)?;
+            stockpiles_to_py(py, stockpiles)
+        })
     }
 
     /// Parse .sav data from bytes and return the stockpiles as a Python list.
@@ -176,6 +194,10 @@ mod python {
     ///
     /// Returns:
     ///     List of stockpile dictionaries
+    ///
+    /// Warns:
+    ///     UserWarning: For each pinned tooltip that yielded no stockpiles
+    ///         (its latest details were withheld, or it could not be read).
     #[pyfunction]
     #[pyo3(signature = (data, *, public=false, reserves=false, hex=None, stockpile_type=None, faction=None, with_items=false))]
     fn parse_save_bytes(
@@ -189,11 +211,11 @@ mod python {
     ) -> PyResult<Py<PyAny>> {
         let faction = parse_faction_arg(faction)?;
 
-        let stockpiles = parser::parse_save_bytes(data)
+        let parsed = parser::parse_save_bytes(data)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
         let stockpiles = apply_filters(
-            stockpiles,
+            parsed.stockpiles,
             public,
             reserves,
             hex,
@@ -202,7 +224,10 @@ mod python {
             with_items,
         );
 
-        Python::with_gil(|py| stockpiles_to_py(py, stockpiles))
+        Python::with_gil(|py| {
+            emit_warnings(py, &parsed.warnings)?;
+            stockpiles_to_py(py, stockpiles)
+        })
     }
 
     /// Get parser information.

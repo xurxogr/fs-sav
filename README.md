@@ -121,6 +121,18 @@ info = fs_sav.info()
 print(f"Implementation: {info['implementation']}, Version: {info['version']}")
 ```
 
+Pinned tooltips that yield no stockpiles (see [Output Format](#output-format))
+are reported as `UserWarning`s:
+
+```python
+import warnings
+
+with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter("always")
+    stockpiles = fs_sav.parse_save("War.sav")
+skipped = [str(w.message) for w in caught]
+```
+
 ### Filter parameters
 
 | Parameter | Type | Description |
@@ -147,6 +159,13 @@ fn main() -> fs_sav::Result<()> {
             stockpile.items.len()
         );
     }
+    for warning in &result.warnings {
+        eprintln!("skipped: {warning}");
+    }
+
+    // From bytes: a `ParsedStockpiles` with the same stockpiles and warnings
+    let parsed = fs_sav::parse_save_bytes(&std::fs::read("path/to/War.sav")?)?;
+    println!("Found {} stockpiles", parsed.stockpiles.len());
 
     Ok(())
 }
@@ -174,9 +193,12 @@ The output is a JSON array of stockpiles:
 ```
 
 Only the latest details of each pinned tooltip are read. A tooltip whose
-latest details were withheld (the player was not on the structure's side when
-it was last updated) carries no current data and is skipped; `parse_save`
-lists it in `ParseResult.warnings` and the CLI prints it to stderr.
+latest details carry no data is skipped: the game sends none for structures
+the player is not on the side of, and stores empty details when it has none
+for the structure (e.g. it no longer exists, or the tooltip could not be
+matched to it). Skipped (and
+unreadable) tooltips are reported as warnings: in `warnings` of the Rust
+results, as Python `UserWarning`s, and on stderr by the CLI.
 
 ## Refinery Data
 

@@ -407,6 +407,17 @@ impl Stockpile {
     }
 }
 
+/// Stockpiles extracted from save data, with warnings about pinned tooltips
+/// that yielded none (details withheld, or unreadable).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ParsedStockpiles {
+    /// List of stockpiles found
+    pub stockpiles: Vec<Stockpile>,
+    /// Any warnings during parsing
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
 /// Result of parsing a save file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParseResult {

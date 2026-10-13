@@ -176,20 +176,21 @@ where
             with_items,
             filters,
         } => {
-            let stockpiles = match file {
+            let (stockpiles, warnings) = match file {
                 Some(path) => {
                     let result = parse_save(&path)?;
-                    for warning in &result.warnings {
-                        eprintln!("Warning: {}", warning);
-                    }
-                    result.stockpiles
+                    (result.stockpiles, result.warnings)
                 }
                 None => {
                     let mut buffer = Vec::new();
                     io::stdin().read_to_end(&mut buffer)?;
-                    parse_save_bytes(&buffer)?
+                    let parsed = parse_save_bytes(&buffer)?;
+                    (parsed.stockpiles, parsed.warnings)
                 }
             };
+            for warning in &warnings {
+                eprintln!("Warning: {}", warning);
+            }
 
             let stockpiles = apply_filters(stockpiles, &filters, with_items);
 
