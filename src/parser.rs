@@ -8,7 +8,10 @@ use chrono::{DateTime, TimeZone, Utc};
 use uesave::{ByteArray, Properties, Property, Save, SaveReader, StructValue, ValueVec};
 
 use crate::error::{FsSavError, Result};
-use crate::models::{parse_tech, Faction, ParseResult, Stockpile, StockpileCoords, StockpileItem};
+use crate::models::{
+    parse_tech, refinery_recipe_code, Faction, ParseResult, Refinery, RefineryAccess,
+    RefineryAccessLevel, RefineryOrder, RefineryStorage, Stockpile, StockpileCoords, StockpileItem,
+};
 
 /// Parse a .sav file and extract stockpiles.
 pub fn parse_save<P: AsRef<Path>>(path: P) -> Result<ParseResult> {
@@ -74,7 +77,7 @@ fn extract_stockpiles(save: &Save) -> Result<Vec<Stockpile>> {
         ("PinnedMapToolTipsW", Faction::Warden),
     ] {
         let pinned_tooltips = properties.0.iter().find_map(|(key, prop)| {
-            if key.1 == prop_name {
+            if name_matches(&key.1, prop_name) {
                 if let Property::Array(ValueVec::Struct(arr)) = prop {
                     return Some(arr);
                 }
@@ -167,6 +170,10 @@ fn parse_tooltip(props: &Properties, faction: Faction) -> Result<Vec<Stockpile>>
             })
             .and_then(|values| parse_tech(&stockpile_type, values));
 
+        // Refinery queue and stored output. Only the recent snapshot is read:
+        // the initial one keeps the state from when the tooltip was pinned.
+        let refinery = parse_refinery(detail_props, &stockpile_type);
+
         // Main stockpile (public)
         result.push(Stockpile {
             name: String::new(),
@@ -177,6 +184,7 @@ fn parse_tooltip(props: &Properties, faction: Faction) -> Result<Vec<Stockpile>>
             is_reserve: false,
             items,
             tech,
+            refinery,
             timestamp,
             shard: None,
             ingame_timestamp: None,
@@ -204,6 +212,7 @@ fn parse_tooltip(props: &Properties, faction: Faction) -> Result<Vec<Stockpile>>
                         is_reserve: true,
                         items: reserve_items,
                         tech: None,
+                        refinery: None,
                         timestamp,
                         shard: None,
                         ingame_timestamp: None,
@@ -266,6 +275,72 @@ fn parse_stockpile_items(value: &StructValue) -> Vec<StockpileItem> {
     items
 }
 
+/// Parse the refinery production state from a tooltip details struct.
+///
+/// - `RefineryOrderAccessLevel` (`Level` enum, `SquadId` int) +
+///   `RefineryOrders`: the queue the viewing player had selected and its
+///   recipes (`Index` u8, `Source`/`Refined`/`Duration` u16).
+/// - `RefineryStorages`: refined output held per owner (`AccessLevel`) and
+///   recipe slot (`Index` u8, `Refined` u16).
+///
+/// Every tooltip carries a default `RefineryOrderAccessLevel`, so `None` is
+/// returned unless there is at least one order or storage entry.
+fn parse_refinery(detail_props: &Properties, stockpile_type: &str) -> Option<Refinery> {
+    let recipe_code =
+        |slot: u8| refinery_recipe_code(stockpile_type, slot).map(|code| code.to_string());
+
+    let orders: Vec<RefineryOrder> = get_struct_array(detail_props, "RefineryOrders")
+        .filter_map(|order| {
+            let slot = get_u8_prop(order, "Index")?;
+            Some(RefineryOrder {
+                slot,
+                code: recipe_code(slot),
+                source: get_u16_prop(order, "Source").unwrap_or(0),
+                refined: get_u16_prop(order, "Refined").unwrap_or(0),
+                duration: get_u16_prop(order, "Duration").unwrap_or(0),
+            })
+        })
+        .collect();
+
+    let storages: Vec<RefineryStorage> = get_struct_array(detail_props, "RefineryStorages")
+        .filter_map(|storage| {
+            let access = parse_refinery_access(get_struct_prop(storage, "AccessLevel")?)?;
+            let slot = get_u8_prop(storage, "Index")?;
+            Some(RefineryStorage {
+                access,
+                slot,
+                code: recipe_code(slot),
+                refined: get_u16_prop(storage, "Refined").unwrap_or(0),
+            })
+        })
+        .collect();
+
+    if orders.is_empty() && storages.is_empty() {
+        return None;
+    }
+
+    Some(Refinery {
+        orders_access: get_struct_prop(detail_props, "RefineryOrderAccessLevel")
+            .and_then(parse_refinery_access),
+        orders,
+        storages,
+    })
+}
+
+/// Parse a `{Level, SquadId}` refinery access struct. The squad id is only
+/// meaningful (and only kept) for the squad access level.
+fn parse_refinery_access(value: &StructValue) -> Option<RefineryAccess> {
+    let StructValue::Struct(props) = value else {
+        return None;
+    };
+    let level = RefineryAccessLevel::from_save_value(&get_string_prop(props, "Level")?)?;
+    let squad_id = match level {
+        RefineryAccessLevel::Squad => get_int32_prop(props, "SquadId"),
+        _ => None,
+    };
+    Some(RefineryAccess { level, squad_id })
+}
+
 /// Convert UE ticks to DateTime. Returns None for missing (zero) or
 /// out-of-range ticks so callers can surface the failure rather than
 /// substituting a fabricated "now".
@@ -285,9 +360,15 @@ fn parse_ue_timestamp(ticks: i64) -> Option<DateTime<Utc>> {
 
 // Helper functions to extract properties
 
+/// Property names are case-insensitive: the save may spell a name with a
+/// different case than the structure declares it (e.g. `SquadId`).
+fn name_matches(key: &str, name: &str) -> bool {
+    key.eq_ignore_ascii_case(name)
+}
+
 fn get_string_prop(props: &Properties, name: &str) -> Option<String> {
     props.0.iter().find_map(|(key, prop)| {
-        if key.1 == name {
+        if name_matches(&key.1, name) {
             match prop {
                 Property::Str(s) | Property::Name(s) => Some(s.clone()),
                 Property::Enum(e) => Some(e.clone()),
@@ -301,7 +382,7 @@ fn get_string_prop(props: &Properties, name: &str) -> Option<String> {
 
 fn get_int32_prop(props: &Properties, name: &str) -> Option<i32> {
     props.0.iter().find_map(|(key, prop)| {
-        if key.1 == name {
+        if name_matches(&key.1, name) {
             // Foxhole stores integer fields with varying property types
             // (e.g. UInt32Property for Quantity), so accept any integer variant.
             return match prop {
@@ -332,7 +413,7 @@ fn get_datetime_ticks_prop(props: &Properties, name: &str) -> Option<i64> {
 
 fn get_float_prop(props: &Properties, name: &str) -> Option<f64> {
     props.0.iter().find_map(|(key, prop)| {
-        if key.1 == name {
+        if name_matches(&key.1, name) {
             match prop {
                 Property::Float(v) => Some(v.0 as f64),
                 Property::Double(v) => Some(v.0),
@@ -346,7 +427,7 @@ fn get_float_prop(props: &Properties, name: &str) -> Option<f64> {
 
 fn get_struct_prop<'a>(props: &'a Properties, name: &str) -> Option<&'a StructValue> {
     props.0.iter().find_map(|(key, prop)| {
-        if key.1 == name {
+        if name_matches(&key.1, name) {
             if let Property::Struct(value) = prop {
                 return Some(value);
             }
@@ -364,13 +445,36 @@ fn get_byte_array_prop<'a>(props: &'a Properties, name: &str) -> Option<&'a [u8]
 
 fn get_array_prop<'a>(props: &'a Properties, name: &str) -> Option<&'a ValueVec> {
     props.0.iter().find_map(|(key, prop)| {
-        if key.1 == name {
+        if name_matches(&key.1, name) {
             if let Property::Array(value) = prop {
                 return Some(value);
             }
         }
         None
     })
+}
+
+/// Iterate the struct elements of an array property (empty if absent).
+fn get_struct_array<'a>(
+    props: &'a Properties,
+    name: &str,
+) -> impl Iterator<Item = &'a Properties> + 'a {
+    let elements = match get_array_prop(props, name) {
+        Some(ValueVec::Struct(elements)) => elements.as_slice(),
+        _ => &[],
+    };
+    elements.iter().filter_map(|element| match element {
+        StructValue::Struct(element_props) => Some(element_props),
+        _ => None,
+    })
+}
+
+fn get_u8_prop(props: &Properties, name: &str) -> Option<u8> {
+    get_int32_prop(props, name).and_then(|v| u8::try_from(v).ok())
+}
+
+fn get_u16_prop(props: &Properties, name: &str) -> Option<u16> {
+    get_int32_prop(props, name).and_then(|v| u16::try_from(v).ok())
 }
 
 #[cfg(test)]

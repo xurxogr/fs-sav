@@ -208,3 +208,37 @@ class TestStockpileTypes:
         }
 
         assert types == expected_types
+
+
+class TestRefinery:
+    """Tests for refinery production data."""
+
+    REFINERY_SAV_PATH = "tests/fixtures/refinery_mapdata.sav"
+
+    def test_refinery_orders_and_storages(self):
+        """The refinery stockpile carries the selected queue and stored output."""
+        stockpiles = fs_sav.parse_save(self.REFINERY_SAV_PATH)
+
+        refineries = [s for s in stockpiles if "refinery" in s]
+        assert len(refineries) == 1
+
+        refinery = refineries[0]["refinery"]
+        assert refineries[0]["type"] == "Refinery"
+        assert refinery["orders_access"] == {"level": "public"}
+        assert refinery["orders"] == [
+            {"slot": 0, "code": "Cloth", "source": 0, "refined": 50, "duration": 0}
+        ]
+
+        storages = refinery["storages"]
+        assert len(storages) == 7
+        assert all(s["access"] == {"level": "squad", "squad_id": 1} for s in storages)
+        refined = {s["slot"]: s["refined"] for s in storages}
+        assert refined[0] == 10
+        assert refined[1] == 5309
+
+    def test_other_stockpiles_have_no_refinery(self):
+        """Only the refinery's main stockpile carries refinery data."""
+        stockpiles = fs_sav.parse_save(self.REFINERY_SAV_PATH)
+        assert all(
+            "refinery" not in s for s in stockpiles if s["type"] != "Refinery" or s["is_reserve"]
+        )

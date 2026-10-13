@@ -164,6 +164,126 @@ pub enum Faction {
     Colonial,
 }
 
+/// Item produced by each refinery recipe slot, in the in-game production list
+/// order: Basic Materials, Diesel, Explosive Materials, Gravel (Salvage),
+/// Refined Materials, Heavy Explosive Materials, Gravel (Coal), Iron Alloy,
+/// Copper Alloy, Aluminum Alloy.
+///
+/// The save only stores the slot (the recipe's position in the refinery's
+/// recipe list), so this table must be re-checked on game updates. Both Gravel
+/// recipes produce `GroundMaterials`; the slot tells them apart.
+const REFINERY_RECIPE_CODES: [&str; 10] = [
+    "Cloth",
+    "Diesel",
+    "Explosive",
+    "GroundMaterials",
+    "Wood",
+    "HeavyExplosive",
+    "GroundMaterials",
+    "IronA",
+    "CopperA",
+    "AluminumA",
+];
+
+/// Item code produced by a recipe slot of the structure with the given
+/// in-game CodeName. `None` for an unknown slot or a structure whose recipe
+/// list is not known.
+pub fn refinery_recipe_code(code_name: &str, slot: u8) -> Option<&'static str> {
+    match code_name {
+        "Refinery" => REFINERY_RECIPE_CODES.get(usize::from(slot)).copied(),
+        _ => None,
+    }
+}
+
+/// Access level of a refinery queue or storage (`ERefineryOrderAccessLevel`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RefineryAccessLevel {
+    Personal,
+    Public,
+    Squad,
+}
+
+impl RefineryAccessLevel {
+    /// Parse a save enum value such as `"ERefineryOrderAccessLevel::Squad"`.
+    /// Returns `None` for unknown values (including the `Count` sentinel).
+    pub fn from_save_value(raw: &str) -> Option<Self> {
+        match raw.rsplit("::").next().unwrap_or(raw) {
+            "Personal" => Some(Self::Personal),
+            "Public" => Some(Self::Public),
+            "Squad" => Some(Self::Squad),
+            _ => None,
+        }
+    }
+}
+
+/// Owner of a refinery queue or storage (`RefineryOrderAccessLevel` /
+/// `AccessLevel` in the save).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefineryAccess {
+    /// Access level of the queue or storage
+    pub level: RefineryAccessLevel,
+    /// Owning squad (squad access level only)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub squad_id: Option<i32>,
+}
+
+/// One recipe of the viewing player's refinery queue (`RefineryOrders` entry).
+///
+/// Counts are capped by the game at 65000 and `duration` at 64800 seconds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefineryOrder {
+    /// Recipe slot: position in the refinery's recipe list (`Index`; 255
+    /// when the recipe is not in the list)
+    pub slot: u8,
+    /// Item produced by the slot (None if the slot is not known)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    /// Source material the player still has waiting to be refined (`Source`)
+    pub source: u16,
+    /// Refined items ready to be collected (`Refined`). For a squad queue this
+    /// is the squad's stored output for the recipe.
+    pub refined: u16,
+    /// Seconds left to refine the player's remaining source (`Duration`)
+    pub duration: u16,
+}
+
+/// Refined output held for an owner, per recipe slot (`RefineryStorages`
+/// entry). Holds the output of the viewing player's squads (other than the
+/// squad queue being viewed) and, while viewing a squad queue, the player's
+/// own personal output.
+///
+/// `refined` is capped by the game at 65000.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefineryStorage {
+    /// Owner of the stored output (`AccessLevel`)
+    pub access: RefineryAccess,
+    /// Recipe slot: position in the refinery's recipe list (`Index`; 255
+    /// when the recipe is not in the list)
+    pub slot: u8,
+    /// Item produced by the slot (None if the slot is not known)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    /// Refined items held in the storage (`Refined`)
+    pub refined: u16,
+}
+
+/// Refinery production state of a structure as seen by the player who last
+/// opened its tooltip (`RecentMapItemDetails`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Refinery {
+    /// Queue the `orders` belong to: the access level the player had selected
+    /// (`RefineryOrderAccessLevel`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orders_access: Option<RefineryAccess>,
+    /// Recipes of that queue
+    #[serde(default)]
+    pub orders: Vec<RefineryOrder>,
+    /// Refined output held per owner and recipe slot
+    #[serde(default)]
+    pub storages: Vec<RefineryStorage>,
+}
+
 /// Normalized map coordinates for a stockpile location.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StockpileCoords {
@@ -234,6 +354,11 @@ pub struct Stockpile {
     /// Garrison/upgrade tech build progress (bases only; None otherwise)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tech: Option<Tech>,
+
+    /// Refinery production queue and stored output (main stockpile of a
+    /// structure with refinery data; None otherwise)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refinery: Option<Refinery>,
 
     /// Last update timestamp (None if absent/invalid in the save; see `errors`)
     pub timestamp: Option<DateTime<Utc>>,
@@ -374,6 +499,38 @@ mod tests {
     }
 
     #[test]
+    fn test_refinery_access_level_from_save_value() {
+        assert_eq!(
+            RefineryAccessLevel::from_save_value("ERefineryOrderAccessLevel::Personal"),
+            Some(RefineryAccessLevel::Personal)
+        );
+        assert_eq!(
+            RefineryAccessLevel::from_save_value("ERefineryOrderAccessLevel::Public"),
+            Some(RefineryAccessLevel::Public)
+        );
+        assert_eq!(
+            RefineryAccessLevel::from_save_value("ERefineryOrderAccessLevel::Squad"),
+            Some(RefineryAccessLevel::Squad)
+        );
+        assert_eq!(
+            RefineryAccessLevel::from_save_value("ERefineryOrderAccessLevel::Count"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_refinery_recipe_code() {
+        assert_eq!(refinery_recipe_code("Refinery", 0), Some("Cloth"));
+        // Both Gravel recipes produce the same item.
+        assert_eq!(refinery_recipe_code("Refinery", 3), Some("GroundMaterials"));
+        assert_eq!(refinery_recipe_code("Refinery", 6), Some("GroundMaterials"));
+        assert_eq!(refinery_recipe_code("Refinery", 9), Some("AluminumA"));
+        assert_eq!(refinery_recipe_code("Refinery", 10), None);
+        // Recipe lists of other structures are not known.
+        assert_eq!(refinery_recipe_code("Seaport", 0), None);
+    }
+
+    #[test]
     fn test_stockpile_type_serialization() {
         let stockpile = Stockpile {
             name: String::new(),
@@ -384,6 +541,7 @@ mod tests {
             is_reserve: false,
             items: vec![],
             tech: None,
+            refinery: None,
             timestamp: None,
             shard: None,
             ingame_timestamp: None,
@@ -405,6 +563,7 @@ mod tests {
             is_reserve: false,
             items: vec![],
             tech: None,
+            refinery: None,
             timestamp: Some(Utc::now()),
             shard: None,
             ingame_timestamp: None,

@@ -121,3 +121,77 @@ fn test_coordinates_valid() {
         }
     }
 }
+
+const TEST_REFINERY_SAV_PATH: &str = "tests/fixtures/refinery_mapdata.sav";
+
+#[test]
+fn test_refinery_orders_and_storages() {
+    use fs_sav::models::{RefineryAccess, RefineryAccessLevel};
+
+    let result = parse_save(TEST_REFINERY_SAV_PATH).expect("Failed to parse fixture");
+
+    let refineries: Vec<_> = result
+        .stockpiles
+        .iter()
+        .filter_map(|s| s.refinery.as_ref().map(|r| (s, r)))
+        .collect();
+    assert_eq!(refineries.len(), 1, "only one tooltip has refinery data");
+
+    let (stockpile, refinery) = refineries[0];
+    assert_eq!(stockpile.stockpile_type, "Refinery");
+    assert_eq!(stockpile.hex.as_deref(), Some("TerminusHex"));
+    assert!(!stockpile.is_reserve);
+
+    // The player had the public queue selected, with one finished order.
+    assert_eq!(
+        refinery.orders_access,
+        Some(RefineryAccess {
+            level: RefineryAccessLevel::Public,
+            squad_id: None,
+        })
+    );
+    assert_eq!(refinery.orders.len(), 1);
+    let order = &refinery.orders[0];
+    assert_eq!(order.slot, 0);
+    assert_eq!(order.code.as_deref(), Some("Cloth"));
+    assert_eq!(order.source, 0);
+    assert_eq!(order.refined, 50);
+    assert_eq!(order.duration, 0);
+
+    // Output held by squad 1, read from the recent snapshot (slot 0 is 10,
+    // not the 18060 of the initial snapshot).
+    let squad = RefineryAccess {
+        level: RefineryAccessLevel::Squad,
+        squad_id: Some(1),
+    };
+    assert_eq!(refinery.storages.len(), 7);
+    assert!(refinery.storages.iter().all(|s| s.access == squad));
+    let refined = |slot: u8| {
+        refinery
+            .storages
+            .iter()
+            .find(|s| s.slot == slot)
+            .map(|s| s.refined)
+    };
+    assert_eq!(refined(0), Some(10));
+    assert_eq!(refined(1), Some(5309));
+    assert_eq!(refined(2), Some(3295));
+    assert_eq!(refined(3), None);
+}
+
+#[test]
+fn test_refinery_data_does_not_create_stockpiles() {
+    let result = parse_save(TEST_REFINERY_SAV_PATH).expect("Failed to parse fixture");
+
+    // Refinery data is attached to the structure's main stockpile only.
+    assert!(result
+        .stockpiles
+        .iter()
+        .filter(|s| s.is_reserve)
+        .all(|s| s.refinery.is_none()));
+    assert!(result
+        .stockpiles
+        .iter()
+        .filter(|s| s.stockpile_type != "Refinery")
+        .all(|s| s.refinery.is_none()));
+}

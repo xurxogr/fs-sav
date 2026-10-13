@@ -173,6 +173,44 @@ The output is a JSON array of stockpiles:
 ]
 ```
 
+## Refinery Data
+
+The main stockpile of a refinery also carries a `refinery` object with its
+production state, as seen by the player who last opened the tooltip:
+
+```json
+{
+  "type": "Refinery",
+  "items": [{ "code": "Diesel", "quantity": 2340, "crated": false }],
+  "refinery": {
+    "orders_access": { "level": "public" },
+    "orders": [
+      { "slot": 0, "code": "Cloth", "source": 0, "refined": 50, "duration": 0 }
+    ],
+    "storages": [
+      {
+        "access": { "level": "squad", "squad_id": 1 },
+        "slot": 1,
+        "code": "Diesel",
+        "refined": 5309
+      }
+    ]
+  }
+}
+```
+
+- `orders_access`: the queue the player had selected (`level` is `personal`,
+  `public` or `squad`; `squad_id` only for squad queues).
+- `orders`: one entry per recipe of that queue. `source` is the material still
+  waiting to be refined, `refined` the output ready to collect (for a squad
+  queue, the squad's stored output) and `duration` the seconds left to refine
+  the player's remaining source.
+- `storages`: output held per owner and recipe: the player's other squads and,
+  while viewing a squad queue, the player's own personal output.
+- `slot` is the recipe's position in the refinery's recipe list (255 if not
+  in the list); `code` is the item it produces, when known.
+- Counts are capped by the game at 65000 and `duration` at 64800 seconds.
+
 ## Stockpile Types
 
 The parser recognizes all Foxhole stockpile types:
