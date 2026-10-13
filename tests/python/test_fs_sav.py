@@ -250,3 +250,37 @@ class TestWarnings:
             fs_sav.parse_save_bytes(data)
 
         assert len(record) == 25
+
+
+class TestStockpileKey:
+    """Tests for stockpile_key."""
+
+    def test_key_format(self):
+        """The key is type:hex:x,y:name with coords rounded to 4 decimals."""
+        stockpile = {
+            "name": "Logi",
+            "type": "Seaport",
+            "hex": "Westgate",
+            "coords": {"x": 0.457745, "y": 0.664469},
+        }
+        assert fs_sav.stockpile_key(stockpile) == "Seaport:Westgate:0.4577,0.6645:Logi"
+
+    def test_key_defaults(self):
+        """Missing fields use the documented defaults."""
+        assert fs_sav.stockpile_key({}) == "Undefined::0,0:"
+        assert fs_sav.stockpile_key({"type": "Seaport", "hex": None, "coords": None}) == (
+            "Seaport::0,0:"
+        )
+
+    def test_keys_unique_for_parsed_stockpiles(self):
+        """Every parsed stockpile gets a distinct key."""
+        stockpiles = fs_sav.parse_save(FILTER_SAV_PATH)
+        keys = {fs_sav.stockpile_key(s) for s in stockpiles}
+        assert len(keys) == len(stockpiles)
+
+    def test_invalid_field_type_raises(self):
+        """A field with the wrong type raises TypeError."""
+        with pytest.raises(TypeError):
+            fs_sav.stockpile_key({"type": 1})
+        with pytest.raises(TypeError):
+            fs_sav.stockpile_key({"coords": "0,0"})

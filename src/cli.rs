@@ -76,7 +76,7 @@ enum Commands {
         #[arg(short, long)]
         compact: bool,
 
-        /// Only stockpiles with items
+        /// Only stockpiles with items (drops empty and newly pinned ones)
         #[arg(long)]
         with_items: bool,
 

@@ -13,14 +13,21 @@ Example:
     >>> reserves = fs_sav.parse_save("path/to/save.sav", reserves=True)
     >>> wardens = fs_sav.parse_save("path/to/save.sav", faction="Warden")
     >>> terminus = fs_sav.parse_save("path/to/save.sav", hex="TerminusHex", with_items=True)
+    >>>
+    >>> # Stable key for tracking a stockpile across parses
+    >>> keys = {fs_sav.stockpile_key(s): s for s in stockpiles}
+
+Empty stockpiles are returned like any other: an empty ``items`` list means
+the stockpile is empty. ``with_items=True`` drops them, including newly pinned
+ones, so leave it off when tracking stockpiles over time.
 """
 
 import sys
 from importlib.metadata import version
 
-from .fs_sav import cli_main, info, parse_save, parse_save_bytes
+from .fs_sav import cli_main, info, parse_save, parse_save_bytes, stockpile_key
 
-__all__ = ["parse_save", "parse_save_bytes", "info", "main"]
+__all__ = ["parse_save", "parse_save_bytes", "stockpile_key", "info", "main"]
 
 __version__ = version("fs-sav")
 

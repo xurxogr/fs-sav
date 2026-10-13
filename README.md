@@ -116,12 +116,15 @@ with open("War.sav", "rb") as f:
     data = f.read()
 stockpiles = fs_sav.parse_save_bytes(data)
 
+# Track stockpiles across parses by their key
+by_key = {fs_sav.stockpile_key(s): s for s in stockpiles}
+
 # Get parser info
 info = fs_sav.info()
 print(f"Implementation: {info['implementation']}, Version: {info['version']}")
 ```
 
-Pinned tooltips that yield no stockpiles (see [Output Format](#output-format))
+Pinned tooltips that yield no stockpiles (see [Skipped tooltips](#skipped-tooltips))
 are reported as `UserWarning`s:
 
 ```python
@@ -141,7 +144,7 @@ skipped = [str(w.message) for w in caught]
 | `reserves` | `bool` | Only reserve stockpiles |
 | `hex` | `str` | Filter by hex name (e.g., "TerminusHex") |
 | `stockpile_type` | `str` | Filter by type (e.g., "Seaport") |
-| `with_items` | `bool` | Only stockpiles with items |
+| `with_items` | `bool` | Only stockpiles with items (drops empty and newly pinned ones) |
 
 ## Rust Library Usage
 
@@ -173,15 +176,16 @@ fn main() -> fs_sav::Result<()> {
 
 ## Output Format
 
-The output is a JSON array of stockpiles:
+The output is a JSON array of stockpiles (Python: a list of dictionaries):
 
 ```json
 [
   {
     "name": "",
     "type": "Seaport",
+    "faction": "Colonial",
     "hex": "TerminusHex",
-    "coords": { "x": 0.457, "y": 0.664 },
+    "coords": { "x": 0.457745, "y": 0.664469 },
     "is_reserve": false,
     "items": [
       { "code": "Rifle", "quantity": 100, "crated": false },
@@ -192,13 +196,79 @@ The output is a JSON array of stockpiles:
 ]
 ```
 
+### Stockpile fields
+
+| Field | Type | Presence | Description |
+|-------|------|----------|-------------|
+| `name` | `str` | always | `""` for a structure's main stockpile, the reserve's name for a reserve stockpile |
+| `type` | `str` | always | Raw in-game CodeName (e.g. `Seaport`). Unknown or new types are passed through as is |
+| `faction` | `str` | always | `Warden` or `Colonial`: the faction whose pinned tooltips the stockpile was read from |
+| `hex` | `str` | when known | Hex name, e.g. `TerminusHex` |
+| `coords` | `{x, y}` | when known | Normalized map coordinates (0.0 to 1.0) |
+| `is_reserve` | `bool` | always | Whether this is a reserve stockpile |
+| `items` | list | always | Items in the stockpile; empty for an empty stockpile (see below) |
+| `items[].code` | `str` | always | Item CodeName |
+| `items[].quantity` | `int` | always | Quantity |
+| `items[].crated` | `bool` | always | Whether the item is crated |
+| `tech` | object | bases only | Garrison/upgrade build progress (0-100 per tech component) |
+| `refinery` | object | refineries only | See [Refinery Data](#refinery-data) |
+| `factory_orders` | list | factories only | See [Factory Orders](#factory-orders) |
+| `timestamp` | `str` or `null` | always | When the tooltip was last updated (UTC, ISO 8601); `null` if missing in the save, with an entry in `errors` |
+| `errors` | list of `str` | when any | Problems found reading the stockpile |
+
+Fields that are not present are omitted rather than set to `null` (except
+`timestamp`). Items never carry `confidence`, and `shard`, `ingame_timestamp`
+and `resolution` are never set: those only exist in screenshot (OCR) output.
+
+### Empty stockpiles
+
+Empty stockpiles are returned like any other, with `items: []`. This includes
+newly pinned stockpiles, which start empty. The `with_items` filter drops them,
+so leave it off when tracking stockpiles over time.
+
+### Skipped tooltips
+
 Only the latest details of each pinned tooltip are read. A tooltip whose
 latest details carry no data is skipped: the game sends none for structures
 the player is not on the side of, and stores empty details when it has none
 for the structure (e.g. it no longer exists, or the tooltip could not be
-matched to it). Skipped (and
-unreadable) tooltips are reported as warnings: in `warnings` of the Rust
-results, as Python `UserWarning`s, and on stderr by the CLI.
+matched to it). Skipped (and unreadable) tooltips are reported as warnings: in
+`warnings` of the Rust results, as Python `UserWarning`s, and on stderr by the
+CLI.
+
+### Stockpile key
+
+Each stockpile has a key that identifies it across parses, used by
+`fs-sav watch` to track changes:
+
+```
+type:hex:x,y:name
+```
+
+Coordinates are rounded to 4 decimals (`0,0` when absent), an empty type is
+written as `Undefined` and a missing hex as an empty string, e.g.
+`Seaport:TerminusHex:0.4577,0.6645:`. Build it with `fs_sav.stockpile_key(stockpile)`
+in Python or `Stockpile::to_key()` / `fs_sav::stockpile_key()` in Rust rather
+than reimplementing it, so it stays consistent across versions.
+
+### Stability
+
+The fields above, the key format and the input of `parse_save_bytes` (the raw
+bytes of a `.sav` file) are the public contract. New optional fields may be
+added in any release, so ignore fields you don't use. Removing or renaming a
+field, changing its type or meaning, or changing the key format is a breaking
+change: it bumps the minor version while fs-sav is 0.x, and the major version
+from 1.0.
+
+### Changes in 0.4
+
+- New optional `refinery` and `factory_orders` fields.
+- Tooltips whose latest details carry no data are skipped and reported as
+  warnings, instead of being returned as empty stockpiles; `tech` is no longer
+  read from the tooltip's initial details.
+- The stockpile key rounds coordinates to 4 decimals (it used 6).
+- Rust: `parse_save_bytes` returns `ParsedStockpiles` (stockpiles and
+  warnings) instead of a list of stockpiles.
 
 ## Refinery Data
 

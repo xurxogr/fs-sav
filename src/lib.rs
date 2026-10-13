@@ -31,8 +31,8 @@ pub mod watcher;
 // Re-export main types for convenience
 pub use error::{FsSavError, Result};
 pub use models::{
-    FactoryOrder, FactoryOrderItem, ParseResult, ParsedStockpiles, ParserInfo, Refinery,
-    RefineryAccess, RefineryAccessLevel, RefineryOrder, RefineryStorage, Stockpile,
+    stockpile_key, FactoryOrder, FactoryOrderItem, ParseResult, ParsedStockpiles, ParserInfo,
+    Refinery, RefineryAccess, RefineryAccessLevel, RefineryOrder, RefineryStorage, Stockpile,
     StockpileCoords, StockpileItem,
 };
 pub use parser::{parse_save, parse_save_bytes};
@@ -47,8 +47,9 @@ pub fn info() -> ParserInfo {
 #[cfg(feature = "python")]
 mod python {
     use pyo3::prelude::*;
+    use pyo3::types::PyDict;
 
-    use crate::models::{Faction, ParserInfo, Stockpile};
+    use crate::models::{Faction, ParserInfo, Stockpile, StockpileCoords};
     use crate::parser;
 
     /// Parse an optional `faction` argument into a `Faction`, raising
@@ -142,7 +143,9 @@ mod python {
     ///     hex: Filter by hex name (e.g., "TerminusHex")
     ///     stockpile_type: Filter by stockpile type (e.g., "Seaport")
     ///     faction: Filter by faction: C/Colonial or W/Warden (case-insensitive)
-    ///     with_items: Only return stockpiles with items
+    ///     with_items: Only return stockpiles with items. Empty stockpiles,
+    ///         including newly pinned ones, are dropped; leave it off when
+    ///         tracking stockpiles over time
     ///
     /// Returns:
     ///     List of stockpile dictionaries
@@ -191,7 +194,9 @@ mod python {
     ///     hex: Filter by hex name (e.g., "TerminusHex")
     ///     stockpile_type: Filter by stockpile type (e.g., "Seaport")
     ///     faction: Filter by faction: C/Colonial or W/Warden (case-insensitive)
-    ///     with_items: Only return stockpiles with items
+    ///     with_items: Only return stockpiles with items. Empty stockpiles,
+    ///         including newly pinned ones, are dropped; leave it off when
+    ///         tracking stockpiles over time
     ///
     /// Returns:
     ///     List of stockpile dictionaries
@@ -229,6 +234,56 @@ mod python {
             emit_warnings(py, &parsed.warnings)?;
             stockpiles_to_py(py, stockpiles)
         })
+    }
+
+    /// Read an optional string field of a stockpile dictionary (missing or
+    /// None both yield None).
+    fn optional_str(stockpile: &Bound<'_, PyDict>, key: &str) -> PyResult<Option<String>> {
+        match stockpile.get_item(key)? {
+            Some(value) => value.extract(),
+            None => Ok(None),
+        }
+    }
+
+    /// Build the unique key of a stockpile, for change tracking.
+    ///
+    /// The key is `type:hex:x,y:name`, with coordinates rounded to 4 decimals
+    /// (`0,0` when absent). It is the same key fs-sav itself uses to track
+    /// stockpiles, so keys stay consistent across versions.
+    ///
+    /// Args:
+    ///     stockpile: A stockpile dictionary as returned by `parse_save`
+    ///
+    /// Returns:
+    ///     The stockpile key
+    ///
+    /// Raises:
+    ///     TypeError: If a field has an unexpected type
+    #[pyfunction]
+    fn stockpile_key(stockpile: &Bound<'_, PyDict>) -> PyResult<String> {
+        let coords = match stockpile.get_item("coords")? {
+            Some(value) if !value.is_none() => {
+                let coords = value.downcast::<PyDict>()?;
+                let component = |name: &str| -> PyResult<f64> {
+                    match coords.get_item(name)? {
+                        Some(v) => v.extract(),
+                        None => Ok(0.0),
+                    }
+                };
+                Some(StockpileCoords {
+                    x: component("x")?,
+                    y: component("y")?,
+                })
+            }
+            _ => None,
+        };
+
+        Ok(crate::models::stockpile_key(
+            &optional_str(stockpile, "type")?.unwrap_or_default(),
+            optional_str(stockpile, "hex")?.as_deref(),
+            coords.as_ref(),
+            &optional_str(stockpile, "name")?.unwrap_or_default(),
+        ))
     }
 
     /// Get parser information.
@@ -278,6 +333,7 @@ mod python {
     fn fs_sav(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_function(wrap_pyfunction!(parse_save, m)?)?;
         m.add_function(wrap_pyfunction!(parse_save_bytes, m)?)?;
+        m.add_function(wrap_pyfunction!(stockpile_key, m)?)?;
         m.add_function(wrap_pyfunction!(info, m)?)?;
         m.add_function(wrap_pyfunction!(cli_main, m)?)?;
         Ok(())

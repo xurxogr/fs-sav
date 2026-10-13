@@ -671,27 +671,37 @@ pub struct Stockpile {
     pub errors: Option<Vec<String>>,
 }
 
+/// Unique key of a stockpile, for change tracking:
+/// `type:hex:x,y:name`, with coordinates rounded to 4 decimals (`0,0` when
+/// absent), an empty type shown as `Undefined` and an empty hex as `""`.
+pub fn stockpile_key(
+    stockpile_type: &str,
+    hex: Option<&str>,
+    coords: Option<&StockpileCoords>,
+    name: &str,
+) -> String {
+    let coords_key = coords
+        .map(|c| format!("{:.4},{:.4}", c.x, c.y))
+        .unwrap_or_else(|| "0,0".to_string());
+
+    let type_str = if stockpile_type.is_empty() {
+        "Undefined"
+    } else {
+        stockpile_type
+    };
+
+    format!("{}:{}:{}:{}", type_str, hex.unwrap_or(""), coords_key, name)
+}
+
 impl Stockpile {
-    /// Generate a unique key for this stockpile (for change tracking).
+    /// Generate a unique key for this stockpile (for change tracking). See
+    /// [`stockpile_key`].
     pub fn to_key(&self) -> String {
-        let coords_key = self
-            .coords
-            .as_ref()
-            .map(|c| format!("{:.6},{:.6}", c.x, c.y))
-            .unwrap_or_else(|| "0,0".to_string());
-
-        let type_str = if self.stockpile_type.is_empty() {
-            "Undefined"
-        } else {
-            &self.stockpile_type
-        };
-
-        format!(
-            "{}:{}:{}:{}",
-            type_str,
-            self.hex.as_deref().unwrap_or(""),
-            coords_key,
-            self.name
+        stockpile_key(
+            &self.stockpile_type,
+            self.hex.as_deref(),
+            self.coords.as_ref(),
+            &self.name,
         )
     }
 }
@@ -881,7 +891,10 @@ mod tests {
             stockpile_type: "Seaport".to_string(),
             faction: Faction::Warden,
             hex: Some("Westgate".to_string()),
-            coords: Some(StockpileCoords { x: 0.5, y: 0.5 }),
+            coords: Some(StockpileCoords {
+                x: 0.457745,
+                y: 0.664469,
+            }),
             is_reserve: false,
             items: vec![],
             tech: None,
@@ -894,9 +907,13 @@ mod tests {
             errors: None,
         };
 
-        let key = stockpile.to_key();
-        assert!(key.contains("Seaport"));
-        assert!(key.contains("Westgate"));
-        assert!(key.contains("Test"));
+        // Coordinates are rounded to 4 decimals.
+        assert_eq!(stockpile.to_key(), "Seaport:Westgate:0.4577,0.6645:Test");
+    }
+
+    #[test]
+    fn test_stockpile_key_defaults() {
+        // Empty type, no hex, no coords, public (unnamed) stockpile.
+        assert_eq!(stockpile_key("", None, None, ""), "Undefined::0,0:");
     }
 }
