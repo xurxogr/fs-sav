@@ -303,21 +303,8 @@ field, changing its type or meaning, or changing the key format is a breaking
 change: it bumps the minor version while fs-sav is 0.x, and the major version
 from 1.0.
 
-### Changes in 0.4
-
-- New optional `refinery` and `factory_orders` fields.
-- Tooltips whose latest details carry no data are skipped and reported as
-  warnings, instead of being returned as empty stockpiles; `tech` is no longer
-  read from the tooltip's initial details.
-- The stockpile key rounds coordinates to 4 decimals (it used 6), and is
-  available as `fs_sav.stockpile_key()`.
-- New `find_save_files()` (Python and Rust) and `fs-sav saves` command to locate
-  the game's save files.
-- `parse_save` reads the whole file first and retries while the game is
-  writing it, instead of parsing a file being written; it fails with a
-  "kept changing" error if the file never settles.
-- Rust: `parse_save_bytes` returns `ParsedStockpiles` (stockpiles and
-  warnings) instead of a list of stockpiles.
+Changes between versions, breaking ones first, are listed in the
+[CHANGELOG](CHANGELOG.md).
 
 ## Refinery Data
 
