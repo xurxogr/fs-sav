@@ -5,20 +5,22 @@ use serde::{Deserialize, Serialize};
 
 /// Ordered tech-tree garrison/upgrade slots for a structure, keyed by its
 /// in-game CodeName and matching the positional `Values.Byte` array in the
-/// save. Empty for structures (facilities, depots, ships) that have no tech,
-/// and for any unrecognized CodeName.
+/// save. The order is the item list of the structure's tech tree; each value is
+/// that item's progress in percent (100 once unlocked). Structures sharing a
+/// tech tree share a layout. Empty for structures (facilities, depots, ships)
+/// that have no tech, and for any unrecognized CodeName.
 fn tech_components(code_name: &str) -> &'static [TechComponent] {
     use TechComponent::*;
     match code_name {
         "ForwardBase1" | "Keep" => &[ProvisionalGarrison, SmallGarrison, LargeGarrison],
         "BorderBase" => &[ProvisionalGarrison],
-        "RelicBase1" => &[
+        "RelicBase1" | "RelicBase2" | "RelicBase3" => &[
             ProvisionalGarrison,
             SmallGarrison,
             LargeGarrison,
             Fortifications,
         ],
-        "GarrisonStation" => &[
+        "GarrisonStation" | "GarrisonStation2" | "TownCLargeGarrisonGS1" => &[
             ProvisionalGarrison,
             SmallGarrison,
             LargeGarrison,
@@ -468,6 +470,25 @@ mod tests {
         let garrison = parse_tech("GarrisonStation", &[100, 100, 100, 80, 0]).unwrap();
         assert_eq!(garrison.radio_station, Some(80));
         assert_eq!(garrison.fortifications, None);
+    }
+
+    #[test]
+    fn test_parse_tech_shared_tech_trees() {
+        // Every tier of a relic base uses the same tech tree.
+        for code_name in ["RelicBase1", "RelicBase2", "RelicBase3"] {
+            let tech = parse_tech(code_name, &[100, 100, 100, 40]).unwrap();
+            assert_eq!(tech.fortifications, Some(40), "{code_name}");
+        }
+        // So does every garrison station variant.
+        for code_name in [
+            "GarrisonStation",
+            "GarrisonStation2",
+            "TownCLargeGarrisonGS1",
+        ] {
+            let tech = parse_tech(code_name, &[100, 100, 100, 30, 0]).unwrap();
+            assert_eq!(tech.radio_station, Some(30), "{code_name}");
+            assert_eq!(tech.artillery_shelter, Some(0), "{code_name}");
+        }
     }
 
     #[test]
