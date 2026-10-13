@@ -393,13 +393,16 @@ orders of the player who last opened the tooltip, one per production queue:
 
 ## Stockpile Types
 
-The parser recognizes all Foxhole stockpile types:
+`type` is the structure's in-game CodeName, passed through as is, so any
+structure that can be pinned is supported, including ones added by game
+updates. Some common types:
 
 | Category | Types |
 |----------|-------|
-| **Bases** | GarrisonStation, Keep, ForwardBase1, RelicBase1, FortBase (T1-T3), BorderBase, TownBase (T1-T3), FortGarrisonStation |
-| **Storage** | StorageFacility, Seaport, AircraftDepot |
-| **Facilities** | Hospital, Refinery, MaintenanceTunnel, FacilityFactorySmallArms, FacilityModificationCenter, FacilityTransfer (Liquid/Material/Resource), FacilityVehicleFactory (T1-T3) |
+| **Bases** | GarrisonStation, Keep, ForwardBase1, RelicBase (1-3), FortBase (T1-T3), BorderBase, TownBase (1-3), FortGarrisonStation |
+| **Storage** | StorageFacility, Seaport, AircraftDepot, ConstructionYard |
+| **Production** | Refinery, Factory, MassProduction |
+| **Facilities** | Hospital, MaintenanceTunnel, FacilityFactorySmallArms, FacilityModificationCenter, FacilityTransfer (Liquid/Material/Resource), FacilityVehicleFactory (1-3) |
 
 ## License
 

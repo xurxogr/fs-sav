@@ -141,15 +141,17 @@ fn find_save_files_in(dirs: &[PathBuf]) -> Vec<SaveFile> {
         };
         let steam_id = (!prefix.is_empty() && prefix.bytes().all(|b| b.is_ascii_digit()))
             .then(|| prefix.to_string());
-        let Ok(metadata) = entry.metadata() else {
+        let Ok(metadata) = std::fs::metadata(&path) else {
             continue;
         };
         if !metadata.is_file() {
             continue;
         }
-        // Several Steam roots are usually links to the same installation.
-        let real_path = std::fs::canonicalize(&path).unwrap_or(path);
-        if !seen.insert(real_path.clone()) {
+        // Several Steam roots are usually links to the same installation. The
+        // resolved path only identifies the file: on Windows it carries the
+        // `\\?\` prefix, so the path as found is the one reported.
+        let real_path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        if !seen.insert(real_path) {
             continue;
         }
         let Ok(modified) = metadata.modified() else {
@@ -157,7 +159,7 @@ fn find_save_files_in(dirs: &[PathBuf]) -> Vec<SaveFile> {
         };
 
         saves.push(SaveFile {
-            path: real_path,
+            path,
             steam_id,
             modified: DateTime::<Utc>::from(modified),
             size_bytes: metadata.len(),
