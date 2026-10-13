@@ -238,6 +238,40 @@ production state, as seen by the player who last opened the tooltip:
   in the list); `code` is the item it produces, when known.
 - Counts are capped by the game at 65000 and `duration` at 64800 seconds.
 
+## Factory Orders
+
+The main stockpile of a Factory or Mass Production Factory also carries the
+orders of the player who last opened the tooltip, one per production queue:
+
+```json
+{
+  "type": "Factory",
+  "factory_orders": [
+    {
+      "queue": 0,
+      "queue_type": "SmallArms",
+      "duration": 0,
+      "items": [{ "slot": 16, "code": "RifleC" }]
+    },
+    {
+      "queue": 6,
+      "queue_type": "Uniforms",
+      "duration": 90,
+      "items": [{ "slot": 13, "code": "ScoutUniformC" }]
+    }
+  ]
+}
+```
+
+- `queue` is the queue's position in the factory's queue list; `queue_type`
+  names it when known. A Mass Production Factory's vehicle and structure
+  queues are not reported in tooltips.
+- `duration` is the seconds until the order is done, counting the orders ahead
+  of it in the queue (capped by the game at 64800); it is 0 for an order that
+  is done and waiting to be collected, which is reported before pending ones.
+- `items` are the order's items: `slot` is the position in the queue's
+  production list (255 if not in the list) and `code` the item, when known.
+
 ## Stockpile Types
 
 The parser recognizes all Foxhole stockpile types:

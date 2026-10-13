@@ -9,9 +9,9 @@ use uesave::{ByteArray, Properties, Property, Save, SaveReader, StructValue, Val
 
 use crate::error::{FsSavError, Result};
 use crate::models::{
-    parse_tech, refinery_recipe_code, Faction, ParseResult, ParsedStockpiles, Refinery,
-    RefineryAccess, RefineryAccessLevel, RefineryOrder, RefineryStorage, Stockpile,
-    StockpileCoords, StockpileItem,
+    factory_item_code, factory_queue_type, parse_tech, refinery_recipe_code, Faction, FactoryOrder,
+    FactoryOrderItem, ParseResult, ParsedStockpiles, Refinery, RefineryAccess, RefineryAccessLevel,
+    RefineryOrder, RefineryStorage, Stockpile, StockpileCoords, StockpileItem,
 };
 
 /// Parse a .sav file and extract stockpiles.
@@ -196,6 +196,9 @@ fn parse_tooltip(
         // Refinery queue and stored output
         let refinery = parse_refinery(detail_props, &stockpile_type);
 
+        // The viewing player's factory orders
+        let factory_orders = parse_factory_orders(detail_props, &stockpile_type);
+
         // Main stockpile (public)
         result.push(Stockpile {
             name: String::new(),
@@ -207,6 +210,7 @@ fn parse_tooltip(
             items,
             tech,
             refinery,
+            factory_orders,
             timestamp,
             shard: None,
             ingame_timestamp: None,
@@ -235,6 +239,7 @@ fn parse_tooltip(
                         items: reserve_items,
                         tech: None,
                         refinery: None,
+                        factory_orders: None,
                         timestamp,
                         shard: None,
                         ingame_timestamp: None,
@@ -347,6 +352,36 @@ fn parse_refinery(detail_props: &Properties, stockpile_type: &str) -> Option<Ref
         orders,
         storages,
     })
+}
+
+/// Parse the viewing player's factory orders from a tooltip details struct
+/// (`FactoryEntries`: `QueueIndex` u8, `Duration` u16, `CodeNames` u8 array of
+/// item positions in the queue's production list). `None` when there are none.
+fn parse_factory_orders(
+    detail_props: &Properties,
+    stockpile_type: &str,
+) -> Option<Vec<FactoryOrder>> {
+    let orders: Vec<FactoryOrder> = get_struct_array(detail_props, "FactoryEntries")
+        .filter_map(|entry| {
+            let queue = get_u8_prop(entry, "QueueIndex")?;
+            let items = get_byte_array_prop(entry, "CodeNames")
+                .unwrap_or_default()
+                .iter()
+                .map(|&slot| FactoryOrderItem {
+                    slot,
+                    code: factory_item_code(stockpile_type, queue, slot).map(str::to_string),
+                })
+                .collect();
+            Some(FactoryOrder {
+                queue,
+                queue_type: factory_queue_type(stockpile_type, queue).map(str::to_string),
+                duration: get_u16_prop(entry, "Duration").unwrap_or(0),
+                items,
+            })
+        })
+        .collect();
+
+    (!orders.is_empty()).then_some(orders)
 }
 
 /// Parse a `{Level, SquadId}` refinery access struct. The squad id is only
@@ -515,5 +550,92 @@ mod tests {
         let ticks: i64 = 638392320000000000;
         let parsed = parse_ue_timestamp(ticks).expect("valid ticks parse");
         assert!(parsed.year() >= 2023 && parsed.year() <= 2025);
+    }
+
+    /// A `FactoryEntries` entry as the save stores it.
+    fn factory_entry(queue: u8, duration: u16, slots: &[u8]) -> StructValue {
+        let mut entry = Properties::default();
+        entry.insert("QueueIndex", Property::Byte(uesave::Byte::Byte(queue)));
+        entry.insert("Duration", Property::UInt16(duration));
+        entry.insert(
+            "CodeNames",
+            Property::Array(ValueVec::Byte(ByteArray::Byte(slots.to_vec()))),
+        );
+        StructValue::Struct(entry)
+    }
+
+    fn details_with_factory_entries(entries: Vec<StructValue>) -> Properties {
+        let mut details = Properties::default();
+        details.insert("FactoryEntries", Property::Array(ValueVec::Struct(entries)));
+        details
+    }
+
+    #[test]
+    fn test_parse_factory_orders() {
+        let details = details_with_factory_entries(vec![
+            // SmallArms: RifleC (slot 16) ready to collect
+            factory_entry(0, 0, &[16]),
+            // Uniforms: two items, 90 s left
+            factory_entry(6, 90, &[13, 15]),
+        ]);
+
+        let orders = parse_factory_orders(&details, "Factory").expect("orders");
+        assert_eq!(orders.len(), 2);
+
+        assert_eq!(orders[0].queue, 0);
+        assert_eq!(orders[0].queue_type.as_deref(), Some("SmallArms"));
+        assert_eq!(orders[0].duration, 0);
+        assert_eq!(orders[0].items.len(), 1);
+        assert_eq!(orders[0].items[0].slot, 16);
+        assert_eq!(orders[0].items[0].code.as_deref(), Some("RifleC"));
+
+        assert_eq!(orders[1].queue_type.as_deref(), Some("Uniforms"));
+        assert_eq!(orders[1].duration, 90);
+        let codes: Vec<_> = orders[1].items.iter().map(|i| i.code.as_deref()).collect();
+        assert_eq!(codes, [Some("ScoutUniformC"), Some("SnowUniformC")]);
+    }
+
+    #[test]
+    fn test_parse_factory_orders_queues_differ_per_structure() {
+        // Queue 3 is Utility in a Factory but Supplies in a Mass Production
+        // Factory, and HeavyAmmo lists its items in a different order.
+        let details = details_with_factory_entries(vec![
+            factory_entry(3, 10, &[0]),
+            factory_entry(2, 10, &[10]),
+        ]);
+
+        let factory = parse_factory_orders(&details, "Factory").unwrap();
+        assert_eq!(factory[0].queue_type.as_deref(), Some("Utility"));
+        assert_eq!(
+            factory[0].items[0].code.as_deref(),
+            Some("BarbedwireMaterials")
+        );
+        assert_eq!(factory[1].items[0].code.as_deref(), Some("ATAmmo"));
+
+        let mpf = parse_factory_orders(&details, "MassProduction").unwrap();
+        assert_eq!(mpf[0].queue_type.as_deref(), Some("Supplies"));
+        assert_eq!(mpf[0].items[0].code.as_deref(), Some("MaintenanceSupplies"));
+        assert_eq!(mpf[1].items[0].code.as_deref(), Some("WaterWallMaterials"));
+    }
+
+    #[test]
+    fn test_parse_factory_orders_unknown_slots_and_structures() {
+        let details = details_with_factory_entries(vec![factory_entry(0, 5, &[255])]);
+
+        // An item not in the queue's list is reported by slot only.
+        let orders = parse_factory_orders(&details, "Factory").unwrap();
+        assert_eq!(orders[0].items[0].slot, 255);
+        assert_eq!(orders[0].items[0].code, None);
+
+        // Queues of unknown structures keep their raw positions.
+        let unknown = parse_factory_orders(&details, "SomeNewFactory").unwrap();
+        assert_eq!(unknown[0].queue_type, None);
+        assert_eq!(unknown[0].items[0].code, None);
+    }
+
+    #[test]
+    fn test_parse_factory_orders_none_when_empty() {
+        assert!(parse_factory_orders(&details_with_factory_entries(vec![]), "Factory").is_none());
+        assert!(parse_factory_orders(&Properties::default(), "Factory").is_none());
     }
 }

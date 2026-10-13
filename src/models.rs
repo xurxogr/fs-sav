@@ -197,6 +197,290 @@ pub fn refinery_recipe_code(code_name: &str, slot: u8) -> Option<&'static str> {
     }
 }
 
+/// A production queue of a factory: its type and the items it can produce, in
+/// the in-game production list order.
+struct FactoryQueue {
+    kind: &'static str,
+    items: &'static [&'static str],
+}
+
+const SMALL_ARMS_ITEMS: &[&str] = &[
+    "AssaultRifleHeavyC",
+    "AssaultRifleHeavyW",
+    "AssaultRifleW",
+    "AssaultRifleAmmo",
+    "AssaultRifleC",
+    "MGC",
+    "MGW",
+    "GrenadeC",
+    "GrenadeW",
+    "PistolLightW",
+    "PistolAmmo",
+    "Revolver",
+    "RifleHeavyW",
+    "RevolverAmmo",
+    "RifleAutomaticC",
+    "RifleAutomaticW",
+    "RifleC",
+    "RifleHeavyC",
+    "RifleLightC",
+    "RifleLightW",
+    "RifleLongC",
+    "RifleLongW",
+    "RifleShortW",
+    "RifleW",
+    "RifleAmmo",
+    "ShotgunC",
+    "ShotgunW",
+    "ShotgunAmmo",
+    "SMGC",
+    "SMGHeavyC",
+    "SMGHeavyW",
+    "SMGW",
+    "SMGAmmo",
+    "SmokeGrenade",
+    "GreenAsh",
+    "MGAmmo",
+];
+
+const HEAVY_ARMS_ITEMS: &[&str] = &[
+    "ATRifleTC",
+    "ATRifleW",
+    "ATRifleAmmo",
+    "ATRPGC",
+    "ATRPGHeavyC",
+    "ATRPGHeavyW",
+    "ATRPGAmmo",
+    "ATRPGTW",
+    "ATRPGW",
+    "ATRPGIndirectAmmo",
+    "FlameTorchC",
+    "FlameTorchW",
+    "GrenadeLauncherC",
+    "GrenadeLauncherTC",
+    "HELaunchedGrenade",
+    "MGTC",
+    "MGTW",
+    "ISGTC",
+    "MiniTankAmmo",
+    "Mortar",
+    "MortarAmmoFL",
+    "MortarAmmoSH",
+    "MortarAmmo",
+    "ATGrenadeW",
+    "ATLaunchedGrenadeW",
+    "ATRPGLightC",
+    "HEGrenade",
+    "StickyBomb",
+    "RPGTW",
+    "RpgW",
+    "RPGAmmo",
+];
+
+const UTILITY_ITEMS: &[&str] = &[
+    "BarbedwireMaterials",
+    "Bayonet",
+    "Binoculars",
+    "ExplosiveLightC",
+    "ExplosiveTripod",
+    "FlameBackpackC",
+    "FlameBackpackW",
+    "ListeningKit",
+    "MaceW",
+    "MetalBeamMaterials",
+    "RadioBackpack",
+    "SandbagMaterials",
+    "SatchelChargeT",
+    "SatchelChargeW",
+    "Shovel",
+    "SledgeHammer",
+    "SwordC",
+    "Tripod",
+    "WindsockT",
+    "WorkWrench",
+    "WaterBucket",
+    "GasMask",
+    "GasMaskFilter",
+    "GrenadeAdapter",
+    "PilotMask",
+    "Radio",
+    "RadioAircraft",
+    "AirSirenT",
+];
+
+const SUPPLIES_ITEMS: &[&str] = &["MaintenanceSupplies"];
+
+const MEDICAL_ITEMS: &[&str] = &[
+    "Bandages",
+    "FirstAidKit",
+    "TraumaKit",
+    "BloodPlasma",
+    "SoldierSupplies",
+];
+
+const UNIFORMS_ITEMS: &[&str] = &[
+    "AmmoUniformW",
+    "ArmourUniformC",
+    "ArmourUniformW",
+    "EngineerUniformC",
+    "EngineerUniformW",
+    "GrenadeUniformC",
+    "MedicUniformC",
+    "MedicUniformW",
+    "NavalUniformC",
+    "NavalUniformW",
+    "OfficerUniformC",
+    "OfficerUniformW",
+    "RainUniformC",
+    "ScoutUniformC",
+    "ScoutUniformW",
+    "SnowUniformC",
+    "SnowUniformW",
+    "TankUniformC",
+    "TankUniformW",
+];
+
+/// Production queues of a Factory, in queue order.
+const FACTORY_QUEUES: &[FactoryQueue] = &[
+    FactoryQueue {
+        kind: "SmallArms",
+        items: SMALL_ARMS_ITEMS,
+    },
+    FactoryQueue {
+        kind: "HeavyArms",
+        items: HEAVY_ARMS_ITEMS,
+    },
+    FactoryQueue {
+        kind: "HeavyAmmo",
+        items: &[
+            "AAAmmo",
+            "AircraftAmmo",
+            "DemolitionRocketAmmo",
+            "HeavyArtilleryAmmo",
+            "LightAAAmmo",
+            "LightArtilleryAmmo",
+            "MiniTorpedoAmmo",
+            "MortarTankAmmo",
+            "MortarTankAmmoBR",
+            "SurfaceWaterMine",
+            "ATAmmo",
+            "LightTankAmmo",
+            "WaterWallMaterials",
+        ],
+    },
+    FactoryQueue {
+        kind: "Utility",
+        items: UTILITY_ITEMS,
+    },
+    FactoryQueue {
+        kind: "Supplies",
+        items: SUPPLIES_ITEMS,
+    },
+    FactoryQueue {
+        kind: "Medical",
+        items: MEDICAL_ITEMS,
+    },
+    FactoryQueue {
+        kind: "Uniforms",
+        items: UNIFORMS_ITEMS,
+    },
+];
+
+/// Production queues of a Mass Production Factory whose orders are reported
+/// in the tooltip, in queue order. Its vehicle and structure queues are never
+/// reported there.
+const MASS_PRODUCTION_QUEUES: &[FactoryQueue] = &[
+    FactoryQueue {
+        kind: "SmallArms",
+        items: SMALL_ARMS_ITEMS,
+    },
+    FactoryQueue {
+        kind: "HeavyArms",
+        items: HEAVY_ARMS_ITEMS,
+    },
+    FactoryQueue {
+        kind: "HeavyAmmo",
+        items: &[
+            "AAAmmo",
+            "AircraftAmmo",
+            "DemolitionRocketAmmo",
+            "HeavyArtilleryAmmo",
+            "LightAAAmmo",
+            "LightArtilleryAmmo",
+            "MiniTorpedoAmmo",
+            "MortarTankAmmo",
+            "MortarTankAmmoBR",
+            "SurfaceWaterMine",
+            "WaterWallMaterials",
+            "ATAmmo",
+            "LightTankAmmo",
+        ],
+    },
+    FactoryQueue {
+        kind: "Supplies",
+        items: SUPPLIES_ITEMS,
+    },
+    FactoryQueue {
+        kind: "Uniforms",
+        items: UNIFORMS_ITEMS,
+    },
+];
+
+/// Production queues of the structure with the given in-game CodeName. The
+/// save only stores queue and item positions, so these tables must be
+/// re-checked on game updates. Empty for structures whose queues are not known.
+fn factory_queues(code_name: &str) -> &'static [FactoryQueue] {
+    match code_name {
+        "Factory" => FACTORY_QUEUES,
+        "MassProduction" => MASS_PRODUCTION_QUEUES,
+        _ => &[],
+    }
+}
+
+/// Type of a factory production queue (e.g. "SmallArms"), when known.
+pub fn factory_queue_type(code_name: &str, queue: u8) -> Option<&'static str> {
+    factory_queues(code_name)
+        .get(usize::from(queue))
+        .map(|q| q.kind)
+}
+
+/// Item code at a slot of a factory production queue, when known.
+pub fn factory_item_code(code_name: &str, queue: u8, slot: u8) -> Option<&'static str> {
+    factory_queues(code_name)
+        .get(usize::from(queue))
+        .and_then(|q| q.items.get(usize::from(slot)))
+        .copied()
+}
+
+/// An item of a factory order (`CodeNames` entry).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FactoryOrderItem {
+    /// Position of the item in its queue's production list (255 when the item
+    /// is not in the list)
+    pub slot: u8,
+    /// Item code at that slot (None if not known)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+}
+
+/// The viewing player's order in one factory production queue
+/// (`FactoryEntries` entry). An order that is done and waiting to be collected
+/// is reported before pending ones.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FactoryOrder {
+    /// Production queue (`QueueIndex`)
+    pub queue: u8,
+    /// Queue type, e.g. "SmallArms" (None if not known)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue_type: Option<String>,
+    /// Seconds until the order is done, including the orders ahead of it in
+    /// the queue; 0 once it is ready to collect. Capped by the game at 64800.
+    pub duration: u16,
+    /// Items of the order (`CodeNames`)
+    #[serde(default)]
+    pub items: Vec<FactoryOrderItem>,
+}
+
 /// Access level of a refinery queue or storage (`ERefineryOrderAccessLevel`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -361,6 +645,11 @@ pub struct Stockpile {
     /// structure with refinery data; None otherwise)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refinery: Option<Refinery>,
+
+    /// The viewing player's factory orders (main stockpile of a factory with
+    /// orders; None otherwise)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub factory_orders: Option<Vec<FactoryOrder>>,
 
     /// Last update timestamp (None if absent/invalid in the save; see `errors`)
     pub timestamp: Option<DateTime<Utc>>,
@@ -574,6 +863,7 @@ mod tests {
             items: vec![],
             tech: None,
             refinery: None,
+            factory_orders: None,
             timestamp: None,
             shard: None,
             ingame_timestamp: None,
@@ -596,6 +886,7 @@ mod tests {
             items: vec![],
             tech: None,
             refinery: None,
+            factory_orders: None,
             timestamp: Some(Utc::now()),
             shard: None,
             ingame_timestamp: None,
