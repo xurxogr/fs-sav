@@ -16,7 +16,7 @@ use notify::RecursiveMode;
 use notify_debouncer_mini::{new_debouncer, DebouncedEventKind};
 
 use crate::models::Faction;
-use crate::{parse_save, parse_save_bytes, Stockpile};
+use crate::{find_save_files, parse_save, parse_save_bytes, Stockpile};
 
 /// Parse a `--faction` value, accepting C/Colonial and W/Warden in any case.
 pub(crate) fn parse_faction(s: &str) -> Result<Faction, String> {
@@ -104,6 +104,13 @@ enum Commands {
 
         #[command(flatten)]
         filters: FilterArgs,
+    },
+
+    /// List the Foxhole map save files found on this machine as JSON, newest first
+    Saves {
+        /// Output compact JSON (no pretty printing)
+        #[arg(short, long)]
+        compact: bool,
     },
 
     /// Print version information
@@ -319,6 +326,16 @@ where
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 }
             }
+        }
+
+        Commands::Saves { compact } => {
+            let saves = find_save_files();
+            let output = if compact {
+                serde_json::to_string(&saves)?
+            } else {
+                serde_json::to_string_pretty(&saves)?
+            };
+            println!("{}", output);
         }
 
         Commands::Version => {

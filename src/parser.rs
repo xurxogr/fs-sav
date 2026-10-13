@@ -1,8 +1,8 @@
 //! SAV file parser using uesave library.
 
-use std::fs::File;
-use std::io::{BufReader, Cursor};
+use std::io::Cursor;
 use std::path::Path;
+use std::time::Duration;
 
 use chrono::{DateTime, TimeZone, Utc};
 use uesave::{ByteArray, Properties, Property, Save, SaveReader, StructValue, ValueVec};
@@ -14,7 +14,17 @@ use crate::models::{
     RefineryOrder, RefineryStorage, Stockpile, StockpileCoords, StockpileItem,
 };
 
+/// Attempts to read a save file the game is not writing at the same time.
+const STABLE_READ_ATTEMPTS: u32 = 5;
+
+/// Wait between attempts to read a save file the game is writing.
+const STABLE_READ_RETRY_DELAY: Duration = Duration::from_millis(200);
+
 /// Parse a .sav file and extract stockpiles.
+///
+/// The file is read whole before parsing, and only accepted if the game did
+/// not rewrite it during the read (it is retried otherwise), so a save being
+/// written is never parsed.
 pub fn parse_save<P: AsRef<Path>>(path: P) -> Result<ParseResult> {
     let path = path.as_ref();
 
@@ -22,24 +32,8 @@ pub fn parse_save<P: AsRef<Path>>(path: P) -> Result<ParseResult> {
         return Err(FsSavError::FileNotFound(path.display().to_string()));
     }
 
-    // Get file modification time
-    let metadata = std::fs::metadata(path)?;
-    let modified = metadata
-        .modified()
-        .map(DateTime::<Utc>::from)
-        .unwrap_or_else(|_| Utc::now());
-
-    // Read and parse the save file
-    let file = File::open(path)?;
-    let mut reader = BufReader::new(file);
-
-    let save = SaveReader::new()
-        .error_to_raw(true)
-        .read(&mut reader)
-        .map_err(|e| FsSavError::ParseError(e.to_string()))?;
-
-    // Extract stockpiles from the save
-    let parsed = extract_stockpiles(&save);
+    let (data, modified) = read_stable(path)?;
+    let parsed = parse_save_bytes(&data)?;
 
     Ok(ParseResult {
         parsed_at: Utc::now(),
@@ -48,6 +42,31 @@ pub fn parse_save<P: AsRef<Path>>(path: P) -> Result<ParseResult> {
         stockpiles: parsed.stockpiles,
         warnings: parsed.warnings,
     })
+}
+
+/// Read a whole file, retrying while its size or modification time change
+/// during the read. Returns the contents and the modification time.
+fn read_stable(path: &Path) -> Result<(Vec<u8>, DateTime<Utc>)> {
+    let fingerprint = |metadata: &std::fs::Metadata| (metadata.len(), metadata.modified().ok());
+
+    for attempt in 1..=STABLE_READ_ATTEMPTS {
+        let before = std::fs::metadata(path)?;
+        let data = std::fs::read(path)?;
+        let after = std::fs::metadata(path)?;
+
+        if fingerprint(&before) == fingerprint(&after) && data.len() as u64 == after.len() {
+            let modified = after
+                .modified()
+                .map(DateTime::<Utc>::from)
+                .unwrap_or_else(|_| Utc::now());
+            return Ok((data, modified));
+        }
+        if attempt < STABLE_READ_ATTEMPTS {
+            std::thread::sleep(STABLE_READ_RETRY_DELAY);
+        }
+    }
+
+    Err(FsSavError::FileUnstable(path.display().to_string()))
 }
 
 /// Parse a .sav file from bytes.
@@ -550,6 +569,27 @@ mod tests {
         let ticks: i64 = 638392320000000000;
         let parsed = parse_ue_timestamp(ticks).expect("valid ticks parse");
         assert!(parsed.year() >= 2023 && parsed.year() <= 2025);
+    }
+
+    #[test]
+    fn test_read_stable_reads_whole_file() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), b"save contents").unwrap();
+
+        let (data, modified) = read_stable(tmp.path()).unwrap();
+        assert_eq!(data, b"save contents");
+        let expected =
+            DateTime::<Utc>::from(std::fs::metadata(tmp.path()).unwrap().modified().unwrap());
+        assert_eq!(modified, expected);
+    }
+
+    #[test]
+    fn test_parse_save_matches_parse_save_bytes() {
+        let path = "tests/fixtures/refinery_mapdata.sav";
+        let from_file = parse_save(path).unwrap();
+        let from_bytes = parse_save_bytes(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(from_file.stockpiles, from_bytes.stockpiles);
+        assert_eq!(from_file.warnings, from_bytes.warnings);
     }
 
     /// A `FactoryEntries` entry as the save stores it.

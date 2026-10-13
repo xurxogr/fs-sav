@@ -13,6 +13,10 @@ pub enum FsSavError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// The file kept changing while being read (the game was writing it)
+    #[error("File kept changing while being read, try again shortly: {0}")]
+    FileUnstable(String),
+
     /// UESave parsing error
     #[error("Failed to parse save file: {0}")]
     ParseError(String),

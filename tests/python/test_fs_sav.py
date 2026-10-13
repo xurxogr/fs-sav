@@ -1,5 +1,7 @@
 """Tests for fs_sav Python bindings."""
 
+import os
+
 import fs_sav
 import pytest
 
@@ -284,3 +286,26 @@ class TestStockpileKey:
             fs_sav.stockpile_key({"type": 1})
         with pytest.raises(TypeError):
             fs_sav.stockpile_key({"coords": "0,0"})
+
+
+class TestFindSaveFiles:
+    """Tests for find_save_files."""
+
+    def test_returns_save_dicts_newest_first(self, tmp_path, monkeypatch):
+        """Saves in the Windows save folder are found, newest first."""
+        save_dir = tmp_path / "Foxhole" / "Saved" / "SaveGames"
+        save_dir.mkdir(parents=True)
+        old = save_dir / "111_MapData.sav"
+        new = save_dir / "222_MapData.sav"
+        old.write_bytes(b"old")
+        new.write_bytes(b"newer")
+        os.utime(old, (1_000_000_000, 1_000_000_000))
+        (save_dir / "111.sav").write_bytes(b"not a map save")
+
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))
+        saves = [s for s in fs_sav.find_save_files() if s["path"].startswith(str(tmp_path))]
+
+        assert [s["steam_id"] for s in saves] == ["222", "111"]
+        assert saves[0]["size_bytes"] == 5
+        assert saves[1]["modified"].startswith("2001-09-09T")

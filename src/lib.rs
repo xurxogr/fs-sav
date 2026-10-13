@@ -26,6 +26,7 @@ pub mod cli;
 pub mod error;
 pub mod models;
 pub mod parser;
+pub mod saves;
 pub mod watcher;
 
 // Re-export main types for convenience
@@ -36,6 +37,7 @@ pub use models::{
     StockpileCoords, StockpileItem,
 };
 pub use parser::{parse_save, parse_save_bytes};
+pub use saves::{find_save_files, SaveFile};
 pub use watcher::{watch_save, WatchHandle};
 
 /// Get parser information.
@@ -286,6 +288,26 @@ mod python {
         ))
     }
 
+    /// Find the Foxhole map save files on this machine, newest first.
+    ///
+    /// Looks in the Windows save folder, the Windows user folders seen from
+    /// WSL, and the Proton prefix of every Steam library on Linux (native and
+    /// Flatpak Steam, including extra libraries).
+    ///
+    /// Returns:
+    ///     List of dictionaries with 'path', 'steam_id' (when the file name
+    ///     carries it), 'modified' (UTC, ISO 8601) and 'size_bytes'
+    #[pyfunction]
+    fn find_save_files(py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let saves = crate::saves::find_save_files();
+        let json_str = serde_json::to_string(&saves)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
+
+        let json_module = PyModule::import(py, "json")?;
+        let result = json_module.call_method1("loads", (json_str,))?;
+        Ok(result.unbind())
+    }
+
     /// Get parser information.
     ///
     /// Returns:
@@ -334,6 +356,7 @@ mod python {
         m.add_function(wrap_pyfunction!(parse_save, m)?)?;
         m.add_function(wrap_pyfunction!(parse_save_bytes, m)?)?;
         m.add_function(wrap_pyfunction!(stockpile_key, m)?)?;
+        m.add_function(wrap_pyfunction!(find_save_files, m)?)?;
         m.add_function(wrap_pyfunction!(info, m)?)?;
         m.add_function(wrap_pyfunction!(cli_main, m)?)?;
         Ok(())

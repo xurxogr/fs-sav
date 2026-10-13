@@ -25,9 +25,16 @@ ones, so leave it off when tracking stockpiles over time.
 import sys
 from importlib.metadata import version
 
-from .fs_sav import cli_main, info, parse_save, parse_save_bytes, stockpile_key
+from .fs_sav import cli_main, find_save_files, info, parse_save, parse_save_bytes, stockpile_key
 
-__all__ = ["parse_save", "parse_save_bytes", "stockpile_key", "info", "main"]
+__all__ = [
+    "parse_save",
+    "parse_save_bytes",
+    "stockpile_key",
+    "find_save_files",
+    "info",
+    "main",
+]
 
 __version__ = version("fs-sav")
 

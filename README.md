@@ -6,6 +6,7 @@ Foxhole save file parser - extracts stockpile data from `.sav` files.
 
 - Parse Foxhole save files (`.sav`) using the [uesave](https://github.com/trumank/uesave) library
 - Extract stockpile information: items, locations, types, quantities
+- Find the game's save files (Windows, WSL, Steam Proton and Flatpak on Linux)
 - Watch files for changes with diff modes (NDJSON output)
 - Filter by hex, stockpile type, public/reserve status
 - Output compatible with [foxhole-stockpiles](https://github.com/xurxogr/foxhole-stockpiles)
@@ -88,6 +89,37 @@ fs-sav watch path/to/War.sav --diff-items
 fs-sav watch path/to/War.sav --hex TerminusHex --public
 ```
 
+### Saves command
+
+```bash
+# List the map save files found on this machine (JSON, newest first)
+fs-sav saves
+```
+
+```json
+[
+  {
+    "path": "C:\\Users\\me\\AppData\\Local\\Foxhole\\Saved\\SaveGames\\76561197960293553_MapData.sav",
+    "steam_id": "76561197960293553",
+    "modified": "2026-08-01T16:25:36Z",
+    "size_bytes": 143466
+  }
+]
+```
+
+The game keeps one `<SteamID64>_MapData.sav` per Steam account. They are
+looked for in:
+
+- Windows: `%LOCALAPPDATA%\Foxhole\Saved\SaveGames`
+- WSL: the same folder of every Windows user, under `/mnt/c/Users`
+- Linux: the Proton prefix (`steamapps/compatdata/505460/...`) of every Steam
+  library, for native Steam (`~/.steam/steam`, `~/.steam/root`,
+  `~/.steam/debian-installation`, `~/.local/share/Steam`) and Flatpak Steam
+  (`~/.var/app/com.valvesoftware.Steam/.local/share/Steam`), including the
+  extra libraries listed in `libraryfolders.vdf`
+
+A save elsewhere is read by passing its path to `parse` or `watch`.
+
 ### Version
 
 ```bash
@@ -118,6 +150,11 @@ stockpiles = fs_sav.parse_save_bytes(data)
 
 # Track stockpiles across parses by their key
 by_key = {fs_sav.stockpile_key(s): s for s in stockpiles}
+
+# Find the save files on this machine (newest first)
+saves = fs_sav.find_save_files()
+if saves:
+    stockpiles = fs_sav.parse_save(saves[0]["path"])
 
 # Get parser info
 info = fs_sav.info()
@@ -169,6 +206,12 @@ fn main() -> fs_sav::Result<()> {
     // From bytes: a `ParsedStockpiles` with the same stockpiles and warnings
     let parsed = fs_sav::parse_save_bytes(&std::fs::read("path/to/War.sav")?)?;
     println!("Found {} stockpiles", parsed.stockpiles.len());
+
+    // Find the save files on this machine (newest first)
+    if let Some(save) = fs_sav::find_save_files().first() {
+        let result = parse_save(&save.path)?;
+        println!("{}: {} stockpiles", save.path.display(), result.stockpiles.len());
+    }
 
     Ok(())
 }
@@ -266,7 +309,13 @@ from 1.0.
 - Tooltips whose latest details carry no data are skipped and reported as
   warnings, instead of being returned as empty stockpiles; `tech` is no longer
   read from the tooltip's initial details.
-- The stockpile key rounds coordinates to 4 decimals (it used 6).
+- The stockpile key rounds coordinates to 4 decimals (it used 6), and is
+  available as `fs_sav.stockpile_key()`.
+- New `find_save_files()` (Python and Rust) and `fs-sav saves` command to locate
+  the game's save files.
+- `parse_save` reads the whole file first and retries while the game is
+  writing it, instead of parsing a file being written; it fails with a
+  "kept changing" error if the file never settles.
 - Rust: `parse_save_bytes` returns `ParsedStockpiles` (stockpiles and
   warnings) instead of a list of stockpiles.
 
